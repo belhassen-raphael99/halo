@@ -59,6 +59,13 @@ final class HaloSettings {
 
     private static let prefix = "halo.settings."
 
+    /// The demo (`Halo --demo`): defaults, in English, never saved.
+    static func demo() -> HaloSettings {
+        let settings = HaloSettings(persistent: false)
+        settings.language = .en
+        return settings
+    }
+
     /// `persistent: false` gives the defaults without touching the saved settings (snapshots).
     init(persistent: Bool = true) {
         self.persistent = persistent
@@ -152,10 +159,13 @@ struct SettingsActions {
 final class SettingsWindowController {
     private var window: NSWindow?
     var isOpen: Bool { window?.isVisible ?? false }
+    /// Over every other window (the demo, filmed over a backdrop).
+    var floatsAbove = false
     private var labels: [(item: NSTabViewItem, text: (Strings) -> String)] = []
 
     func show(settings: HaloSettings, actions: SettingsActions) {
         if window == nil { window = makeWindow(settings: settings, actions: actions) }
+        if floatsAbove { window?.level = AppController.demoLevel }
         updateLanguage(settings.strings)
         // Halo has no Dock icon: bring it forward so the window comes to the front.
         NSApp.activate()

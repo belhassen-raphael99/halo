@@ -25,6 +25,28 @@ enum Samples {
         ]
     }
 
+    /// The demo (`Halo --demo`): sessions wake up one by one, one asks for a permission, one finishes.
+    static var demoScript: SessionStore.DemoScript {
+        SessionStore.DemoScript(
+            steps: [
+                (2.0, "Landing page redesign", .working),
+                (3.4, "API migration", .working),
+                (4.8, "Unit tests", .working),
+                (7.0, "API migration", .needsYou(reason: "permission prompt")),
+                (9.6, "Unit tests", .done),
+                (21.0, "Mobile app", .working),
+            ],
+            loop: 60,
+            start: {
+                sessions().map { session in
+                    guard session.isLive else { return session }
+                    var rested = session
+                    rested.state = .rest
+                    return rested
+                }
+            })
+    }
+
     /// What the sample cards say: the interface in `strings`' language, the content in English.
     static func details(_ s: Strings = Strings(lang: .en)) -> [String: SessionDetail] {
         [
@@ -490,6 +512,101 @@ private struct StatesBoard: View {
             }
             .padding(.horizontal, 30)
             .padding(.top, 40)
+        }
+    }
+}
+
+// MARK: - Demo video cards
+
+/// The title, captions and end card of the demo video (`Halo --video-cards <dir>`), 1920 × 1080.
+@MainActor
+enum VideoArt {
+    static let size = CGSize(width: 1920, height: 1080)
+    /// Text, and whether it sits in the top-left corner (beside the notch) instead of centered.
+    static let captions: [(String, Bool)] = [
+        ("Every Claude Code session, at a glance", false),
+        ("Hover: see what it needs from you", false),
+        ("Drag it anywhere. It melts into the notch.", false),
+        ("Six animations to pick from", true),
+    ]
+
+    static func render(into directory: URL) {
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        write(TitleCard(), to: directory.appendingPathComponent("title.png"))
+        write(EndCard(), to: directory.appendingPathComponent("end.png"))
+        for (index, caption) in captions.enumerated() {
+            write(Caption(text: caption.0, corner: caption.1),
+                  to: directory.appendingPathComponent("caption-\(index + 1).png"))
+        }
+    }
+
+    private static func write<V: View>(_ view: V, to url: URL) {
+        let renderer = ImageRenderer(content: view.frame(width: size.width, height: size.height)
+            .environment(\.offscreen, true).environment(\.colorScheme, .dark))
+        renderer.scale = 1
+        guard let image = renderer.cgImage,
+              let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return }
+        try? png.write(to: url)
+        print("card → \(url.lastPathComponent)")
+    }
+
+    private struct TitleCard: View {
+        var body: some View {
+            ZStack {
+                Backdrop(cornerRadius: 0)
+                VStack(spacing: 34) {
+                    HaloMark(size: 230).shadow(color: Color(hex: 0x8D9FFF).opacity(0.45), radius: 40)
+                    Text("Halo")
+                        .font(.system(size: 132, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text("A Dock for your Claude Code sessions")
+                        .font(.system(size: 46, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.72))
+                }
+            }
+        }
+    }
+
+    private struct EndCard: View {
+        var body: some View {
+            ZStack {
+                Backdrop(cornerRadius: 0)
+                VStack(spacing: 30) {
+                    HaloMark(size: 150).shadow(color: Color(hex: 0x8D9FFF).opacity(0.45), radius: 30)
+                    Text("Free and open source")
+                        .font(.system(size: 72, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text("github.com/belhassen-raphael99/halo")
+                        .font(.system(size: 42, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Color(hex: 0xC6B8FF))
+                    Text("macOS 15+  ·  Swift  ·  no API key, no network  ·  MIT")
+                        .font(.system(size: 30, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+            }
+        }
+    }
+
+    /// A caption pill at the top of the frame, on a transparent background.
+    private struct Caption: View {
+        let text: String
+        var corner = false
+
+        var body: some View {
+            VStack(alignment: corner ? .leading : .center) {
+                Text(text)
+                    .font(.system(size: corner ? 42 : 50, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 44)
+                    .padding(.vertical, 22)
+                    .background(Capsule().fill(Color(hex: 0x0D0C17).opacity(0.78)))
+                    .overlay(Capsule().strokeBorder(.white.opacity(0.14), lineWidth: 1.5))
+                    .shadow(color: .black.opacity(0.35), radius: 24, y: 8)
+                    .padding(.top, corner ? 48 : 64)
+                    .padding(.leading, corner ? 56 : 0)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, alignment: corner ? .leading : .center)
         }
     }
 }

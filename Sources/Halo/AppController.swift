@@ -23,8 +23,15 @@ enum Placement: Equatable {
 
 @MainActor
 final class AppController: NSObject, NSApplicationDelegate {
-    private let settings = HaloSettings()
-    private lazy var store = SessionStore(settings: settings)
+    /// `Halo --demo`: sample sessions that come to life on a script, in English, with
+    /// nothing read from Claude and nothing saved. To try Halo, or to film it.
+    static var demo = false
+    /// Just above the menu bar (and a backdrop covering it), below menus.
+    static let demoLevel = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
+
+    private let settings = AppController.demo ? HaloSettings.demo() : HaloSettings()
+    private lazy var store = AppController.demo ? SessionStore(demo: Samples.demoScript, settings: settings)
+                                                : SessionStore(settings: settings)
     private let pointer = Pointer()
     private lazy var layout = DockLayout(settings: settings)
     private let settingsWindow = SettingsWindowController()
@@ -75,14 +82,18 @@ final class AppController: NSObject, NSApplicationDelegate {
             quit: { NSApp.terminate(nil) }
         )
         panel.contentView = HaloHostingView(
-            rootView: DockView(store: store, pointer: pointer, layout: layout, actions: actions))
+            rootView: DockView(store: store, pointer: pointer, layout: layout, actions: actions)
+                .environment(\.previewDetails, Self.demo ? Samples.details(settings.strings) : [:]))
 
-        placement = savedPlacement() ?? .docked(.bottom, NSPoint(x: NSScreen.main?.frame.midX ?? 0, y: 0))
-        store.loadHidden()
+        placement = (Self.demo ? nil : savedPlacement())
+            ?? .docked(.bottom, NSPoint(x: NSScreen.main?.frame.midX ?? 0, y: 0))
+        if !Self.demo { store.loadHidden() }
+        // In the demo, the bar and Settings float over everything (a backdrop may hide the desktop).
+        settingsWindow.floatsAbove = Self.demo
         store.onChange = { [weak self] in self?.sessionsChanged() }
         store.onStateChange = { [weak self] session, old in self?.announce(session, from: old) }
         Notifier.shared.onOpen = { [weak self] host in self?.open(host: host) }
-        Notifier.shared.setUp()
+        if !Self.demo { Notifier.shared.setUp() }
         // Size, magnification and the notch's icon count change the window: re-place it.
         settings.onChange = { [weak self] in
             guard let self else { return }
@@ -233,7 +244,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     private func registerHotKey() {
-        guard settings.hotKeyEnabled else {
+        guard settings.hotKeyEnabled, !Self.demo else {
             HotKey.shared.unregister()
             return
         }
@@ -447,7 +458,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         if layout.floating != floating { layout.floating = floating }
         let screen = NSScreen.screens.firstIndex { $0.frame.contains(placementPoint) } ?? 0
         if layout.screenIndex != screen { layout.screenIndex = screen }
-        panel.level = target.level
+        panel.level = Self.demo ? Self.demoLevel : target.level
         if animated && !reshaped {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.34
@@ -561,6 +572,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     private func savePlacement() {
+        guard !Self.demo else { return }
         let (kind, point): (String, NSPoint)
         switch placement {
         case .floating(let p): (kind, point) = ("floating", p)
@@ -596,7 +608,7 @@ final class AppController: NSObject, NSApplicationDelegate {
             guard let press else { break }
             if !dragging, hypot(mouse.x - press.mouse.x, mouse.y - press.mouse.y) > Self.dragThreshold {
                 dragging = true
-                panel.level = .floating
+                panel.level = Self.demo ? Self.demoLevel : .floating
             }
             if dragging {
                 panel.setFrameOrigin(NSPoint(x: press.origin.x + mouse.x - press.mouse.x,

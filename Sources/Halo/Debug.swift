@@ -40,6 +40,10 @@ enum Debug {
             ReadmeArt.render(into: URL(fileURLWithPath: arguments[index + 1], isDirectory: true))
             return true
         }
+        if let index = arguments.firstIndex(of: "--video-cards"), index + 1 < arguments.count {
+            VideoArt.render(into: URL(fileURLWithPath: arguments[index + 1], isDirectory: true))
+            return true
+        }
         if let index = arguments.firstIndex(of: "--appicon"), index + 1 < arguments.count {
             ReadmeArt.appIcon(to: URL(fileURLWithPath: arguments[index + 1]))
             return true

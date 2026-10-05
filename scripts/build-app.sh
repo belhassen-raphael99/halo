@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="0.4.1"
+VERSION="0.4.2"
 APP="build/Halo.app"
 
 swift build -c release

@@ -17,6 +17,11 @@
 </p>
 
 <p align="center">
+  <a href="docs/demo/halo-demo.mp4"><img src="docs/readme/demo-poster.png" alt="Watch the 30-second demo" width="80%"></a><br>
+  <sub>The real app, filmed with <code>Halo --demo</code> (sample sessions).</sub>
+</p>
+
+<p align="center">
   <a href="#install"><b>Install</b></a> ·
   <a href="#the-five-states">States</a> ·
   <a href="#hover-it-tells-you-what-it-needs">Hover card</a> ·
@@ -344,6 +349,16 @@ cd halo
 
 This compiles Halo, puts **Halo.app** in `~/Applications` and launches it. No warning, since you built it yourself.
 
+### Try it without Claude
+
+Quit Halo first (right-click → *Quit Halo*), then:
+
+```bash
+open -a Halo --args --demo
+```
+
+Sample sessions come to life on a loop: one starts working, one asks for a permission, one finishes. Nothing is read from Claude and nothing is saved. Quit it from its right-click menu.
+
 ### After launch
 
 - **Halo has no Dock icon: it is the bar.** It appears at the bottom of your screen. Right-click it for its menu.
@@ -369,6 +384,8 @@ swift build -c release                                # compile
 .build/release/Halo --status                          # what the running bar reports: permission, shortcut, icons…
 .build/release/Halo --snapshot <dir>                  # renders the bar in each placement as PNGs
 .build/release/Halo --icons "Weather app" "…"         # the icon Halo would make for each name, and the runners-up
+open -a Halo --args --demo                            # the app with scripted sample sessions (how the demo video was filmed)
+.build/release/Halo --video-cards <dir>               # the demo video's title, captions and end card
 .build/release/Halo --readme docs/readme              # regenerates this README's artwork
 .build/release/Halo --appicon Resources/AppIcon.icns  # regenerates the app icon
 ```
@@ -380,7 +397,7 @@ swift build -c release                                # compile
 - **Undocumented formats.** Halo reads Claude's internal files, so a Claude update can break it. `--dump` shows what changed.
 - **No answering from the bar.** Halo cannot type into a session; a click takes you there.
 - **✕ removes, it doesn't archive.** The Claude app offers no safe way for another app to close a session.
-- **Next:** notarized releases, a Homebrew cask, terminal sessions jumping to their tab, and a demo video.
+- **Next:** notarized releases, a Homebrew cask, and terminal sessions jumping to their tab.
 
 ---
 

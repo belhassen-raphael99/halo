@@ -77,6 +77,49 @@ final class SessionStore {
         sessions = preview
     }
 
+    /// `--demo`: the sample sessions, their states following `script` (seconds from launch), in a loop.
+    convenience init(demo script: DemoScript, settings: HaloSettings) {
+        self.init(settings: settings)
+        polling = false
+        self.script = script
+        sessions = script.start()
+    }
+
+    struct DemoScript {
+        let steps: [(at: Double, id: String, state: SessionState)]
+        /// The script starts over after this many seconds.
+        let loop: Double
+        let start: () -> [Session]
+    }
+
+    @ObservationIgnored private var script: DemoScript?
+    @ObservationIgnored private var scriptStep = 0
+    @ObservationIgnored private var scriptStart = Date()
+
+    private func playScript() {
+        guard let script else { return }
+        var elapsed = Date().timeIntervalSince(scriptStart)
+        if elapsed >= script.loop {
+            scriptStart = Date()
+            scriptStep = 0
+            elapsed = 0
+            sessions = script.start()
+            onChange?()
+        }
+        while scriptStep < script.steps.count, script.steps[scriptStep].at <= elapsed {
+            let step = script.steps[scriptStep]
+            scriptStep += 1
+            guard let index = sessions.firstIndex(where: { $0.id == step.id }) else { continue }
+            let old = sessions[index]
+            let now = Self.nowMs
+            sessions[index] = Session(id: old.id, pid: old.pid, name: old.name, cwd: old.cwd, isDesktop: old.isDesktop,
+                                      hostSessionId: old.hostSessionId, transcriptId: old.transcriptId,
+                                      state: step.state, stateSince: now)
+            onStateChange?(sessions[index], old.state)
+            onChange?()
+        }
+    }
+
     /// Restores the sessions removed with ✕ in a previous run.
     func loadHidden() {
         hiddenAt = UserDefaults.standard.dictionary(forKey: Self.hiddenKey) as? [String: Double] ?? [:]
@@ -99,6 +142,13 @@ final class SessionStore {
     }
 
     func start() {
+        if script != nil {
+            scriptStart = Date()
+            timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.playScript() }
+            }
+            return
+        }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }

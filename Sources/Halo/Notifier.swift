@@ -14,21 +14,25 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     /// Opens a session from its Desktop id (`local_…`).
     @ObservationIgnored var onOpen: ((String) -> Void)?
 
-    private var center: UNUserNotificationCenter { .current() }
+    /// Notifications need an app bundle: run bare from `.build`, Halo goes without.
+    private var center: UNUserNotificationCenter? {
+        Bundle.main.bundleIdentifier == nil ? nil : .current()
+    }
 
     func setUp() {
-        center.delegate = self
+        center?.delegate = self
         Task { await refresh() }
     }
 
     func refresh() async {
+        guard let center else { return }
         let status = await center.notificationSettings().authorizationStatus
         allowed = status == .notDetermined ? nil : (status == .authorized || status == .provisional)
     }
 
     /// Asks macOS once (its own dialog); afterwards the choice lives in System Settings.
     func requestPermission() async {
-        _ = try? await center.requestAuthorization(options: [.alert])
+        _ = try? await center?.requestAuthorization(options: [.alert])
         await refresh()
     }
 
@@ -40,11 +44,11 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         if let host { content.userInfo = ["host": host] }
         content.threadIdentifier = sessionId
         // Same id per session: a new state replaces the previous notification.
-        center.add(UNNotificationRequest(identifier: Self.identifier(sessionId), content: content, trigger: nil))
+        center?.add(UNNotificationRequest(identifier: Self.identifier(sessionId), content: content, trigger: nil))
     }
 
     func withdraw(sessionId: String) {
-        center.removeDeliveredNotifications(withIdentifiers: [Self.identifier(sessionId)])
+        center?.removeDeliveredNotifications(withIdentifiers: [Self.identifier(sessionId)])
     }
 
     private static func identifier(_ sessionId: String) -> String { "halo.session.\(sessionId)" }
