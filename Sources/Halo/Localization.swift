@@ -220,9 +220,9 @@ struct Strings: Sendable {
              "עובד מכל אפליקציה. הסרגל מוסתר? הקיצור הזה, או פתיחה מחדש של Halo (שפותחת גם את ההגדרות האלה), יחזירו אותו.")
     }
     var sideBySideFooter: String {
-        pick("Le ⌥-clic ouvre un panneau à droite dans Claude ; tu y choisis ensuite la session dans sa barre latérale.",
-             "⌥-click opens a pane on the right in Claude; then pick the session in its sidebar.",
-             "⌥-לחיצה פותחת חלונית מימין ב־Claude; אחר כך בוחרים את הסשן בסרגל הצד שלו.")
+        pick("Le ⌥-clic ouvre la session dans un panneau à droite de Claude : Halo ouvre le panneau, puis clique la session dans la barre latérale, comme tu le ferais.",
+             "⌥-click opens the session in a pane on the right in Claude: Halo opens the pane, then clicks the session in the sidebar, as you would.",
+             "⌥-לחיצה פותחת את הסשן בחלונית מימין ב־Claude: ‏Halo פותח את החלונית ולוחץ על הסשן בסרגל הצד, כמו שהיית עושה.")
     }
     var position: String { pick("Position", "Position", "מיקום") }
     var hideBar: String { pick("Masquer la barre", "Hide the bar", "הסתרת הסרגל") }

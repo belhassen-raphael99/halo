@@ -147,7 +147,15 @@ final class AppController: NSObject, NSApplicationDelegate {
             if !SplitOpener.isTrusted { SplitOpener.requestTrust() }
             Task {
                 if await SplitOpener.openPaneOnTheRight() {
-                    showToast(settings.strings.pickInSidebar(session.name))
+                    // The new pane takes a moment to open and take the focus; then the session
+                    // is clicked in Claude's sidebar, which opens it there, history and all.
+                    try? await Task.sleep(for: .milliseconds(900))
+                    // Only ever click into Claude: if another app came to the front, just say what to do.
+                    if let point = await SplitOpener.sidebarPoint(title: session.name), SplitOpener.claudeIsInFront {
+                        SplitOpener.click(at: point)
+                    } else {
+                        showToast(settings.strings.pickInSidebar(session.name))
+                    }
                 } else {
                     NSWorkspace.shared.open(url)
                 }

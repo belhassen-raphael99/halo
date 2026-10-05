@@ -78,7 +78,7 @@ Hover any icon to see a small card: the **exact question** with its choices, the
 | Gesture | What happens |
 |---|---|
 | **Click** | Jumps to that session in the Claude app |
-| **⌥-click** | Opens a pane on the right of the Claude window (Split View) and tells you which session to pick in Claude's sidebar to show it there |
+| **⌥-click** | Opens that session in a pane on the right of the Claude window (Split View), history and all |
 | **✕** on hover | Takes the icon off the bar. It comes back by itself on the session's next turn. |
 | **Pinch** | Shrinks or grows the whole bar |
 | **⚙︎** at the end of the bar | Opens Settings |
@@ -223,7 +223,12 @@ Halo reads three things Claude already keeps on disk, and never writes to them.
 | `/System/Library/CoreServices/CoreGlyphs.bundle/…/symbol_*.plist` | SF Symbols names, Apple's search keywords and categories, for generated icons | Once, at launch |
 
 - **Done vs idle.** A session is *done* if Halo saw its turn end (busy or waiting, then idle) after you last looked at it. "Looked" means its `lastFocusedAt` in the Claude app, a click on the icon, or the app being in front with that session showing. Status changes during a process's first 15 s are its boot, so relaunching Claude doesn't turn everything green.
-- **Opening.** A click opens `claude://code/continue?session=local_…`. For ⌥-click, Halo uses the Accessibility API to press *Split View → New Session on the Right* in the Claude app's own menu (its title is read from the app's translation files, so this works in any language). Claude's session link always lands in the main pane and the app offers no other way in, so Halo cannot put an existing session in the new pane by itself: a short note tells you which session to click in the sidebar.
+- **Opening.** A click opens `claude://code/continue?session=local_…`. That link always lands in the main pane, so for ⌥-click Halo does what you would do by hand, through the Accessibility API:
+  1. it presses *Split View → New Session on the Right* in the Claude app's own menu (the title is read from the app's translation files, so this works in any language), which opens an empty pane on the right;
+  2. it finds the session's row in Claude's sidebar. The sidebar is web content, which Claude (an Electron app) describes to Accessibility once asked to (`AXManualAccessibility`, as screen readers do). If the new pane made the window too narrow and Claude folded its sidebar away, Halo picks *View → Show Sidebar*;
+  3. it waits until the row holds still (the list redraws itself when a pane opens, and a row can briefly show another session), then clicks its title for real and puts the pointer back. The session opens in the new pane.
+
+  It only ever clicks when Claude is the app in front. If the session is not in the sidebar (a routine, a closed group), a short note tells you which one to pick.
 
 <details>
 <summary><b>Source map</b></summary>
@@ -238,7 +243,7 @@ Halo reads three things Claude already keeps on disk, and never writes to them.
 | `DockView.swift` | The bar: rows, icons, badges, ✕, bounce, done celebration, notch island, glass |
 | `LayerEffects.swift` | Core Animation effects: the six working styles, alert pulse, breathing, light sweep |
 | `SessionDetail.swift` | Transcript reading and the hover card |
-| `SplitOpener.swift` | Side-by-side opening through the Claude app's menu |
+| `SplitOpener.swift` | Side-by-side opening: the Claude app's menu, then its sidebar |
 | `Settings.swift` | Settings model and the tabbed Settings window (live preview, shortcut recorder) |
 | `IconRules.swift` | Your icon rules, generated-icon picks, and the symbol choices |
 | `Symbols.swift` | Apple's SF Symbols catalog (from macOS) and the icon generator |
@@ -386,6 +391,7 @@ swift build -c release                                # compile
 .build/release/Halo --icons "Weather app" "…"         # the icon Halo would make for each name, and the runners-up
 open -a Halo --args --demo                            # the app with scripted sample sessions (how the demo video was filmed)
 .build/release/Halo --video-cards <dir>               # the demo video's title, captions and end card
+~/Applications/Halo.app/Contents/MacOS/Halo --open-beside "<title>"  # the ⌥-click sequence for a session title
 .build/release/Halo --readme docs/readme              # regenerates this README's artwork
 .build/release/Halo --appicon Resources/AppIcon.icns  # regenerates the app icon
 ```

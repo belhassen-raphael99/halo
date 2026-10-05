@@ -13,6 +13,40 @@ enum Debug {
         if ["--readme", "--appicon", "--snapshot"].contains(where: arguments.contains) {
             IconRulesStore.shared = IconRulesStore(persistent: false)
         }
+        if let index = arguments.firstIndex(of: "--open-beside"), index + 1 < arguments.count {
+            // The ⌥-click sequence, for a session title, without going through the bar.
+            let title = arguments[index + 1]
+            var done = false
+            Task { @MainActor in
+                if await SplitOpener.openPaneOnTheRight() {
+                    print("pane opened")
+                    try? await Task.sleep(for: .milliseconds(900))
+                    if let point = await SplitOpener.sidebarPoint(title: title), SplitOpener.claudeIsInFront {
+                        print("click at \(point)")
+                        SplitOpener.click(at: point)
+                    } else {
+                        print("not found, or Claude not in front")
+                    }
+                } else {
+                    print("no pane: menu item missing or disabled")
+                }
+                done = true
+            }
+            while !done { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+            return true
+        }
+        if let index = arguments.firstIndex(of: "--find-in-sidebar"), index + 1 < arguments.count {
+            // Finds a session row in Claude's sidebar, without clicking it.
+            let semaphore = DispatchSemaphore(value: 0)
+            let title = arguments[index + 1]
+            Task.detached {
+                let found = await SplitOpener.findInSidebar(title: title)
+                print(found ?? "not found")
+                semaphore.signal()
+            }
+            while semaphore.wait(timeout: .now()) == .timedOut { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+            return true
+        }
         if let index = arguments.firstIndex(of: "--icons") {
             for name in arguments[(index + 1)...] {
                 let match = AppIcon.match(name: name, cwd: "")

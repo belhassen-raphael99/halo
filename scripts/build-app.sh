@@ -5,11 +5,19 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="0.4.2"
+VERSION="0.4.3"
 APP="build/Halo.app"
+# Assemblée et signée hors du dossier du projet : le Bureau peut être synchronisé par iCloud,
+# qui pose des attributs étendus (FinderInfo) sur les fichiers ; une signature posée par-dessus
+# est jugée invalide, et macOS refuse alors l'autorisation Accessibilité.
+STAGE="$(mktemp -d)"
+trap 'rm -rf "$STAGE"' EXIT
+SIGNED="$STAGE/Halo.app"
 
 swift build -c release
 
+APP_FINAL="$APP"
+APP="$SIGNED"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/Halo "$APP/Contents/MacOS/Halo"
@@ -38,25 +46,24 @@ PLIST
 
 # Signature : avec le certificat local « Halo Developer » s'il existe (scripts/make-signing-cert.sh),
 # pour que macOS garde l'autorisation Accessibilité d'une version à l'autre ; sinon ad hoc.
-# Le Bureau peut être synchronisé par iCloud, qui ajoute des attributs étendus (FinderInfo) :
-# une signature posée par-dessus est jugée invalide, et macOS refuse alors l'autorisation Accessibilité.
-# iCloud peut en remettre entre le nettoyage et la signature : on réessaie.
 IDENTITY="Halo Developer"
 SIGN_AS="-"
 if security find-identity -p codesigning | grep -q "\"$IDENTITY\""; then SIGN_AS="$IDENTITY"; fi
-for attempt in 1 2 3; do
-  xattr -cr "$APP"
-  if codesign --force --sign "$SIGN_AS" "$APP"; then break; fi
-  [[ $attempt == 3 ]] && exit 1
-  sleep 1
-done
-echo "OK → $APP"
+xattr -cr "$APP"
+codesign --force --sign "$SIGN_AS" "$APP"
+codesign --verify --strict "$APP"
+
+# Copie dans build/ (sans attributs étendus), pour le zip des releases.
+rm -rf "$APP_FINAL"
+mkdir -p "$(dirname "$APP_FINAL")"
+ditto --norsrc --noextattr "$APP" "$APP_FINAL"
+echo "OK → $APP_FINAL"
 
 if [[ "${1:-}" == "--install" ]]; then
   mkdir -p "$HOME/Applications"
   pkill -x Halo 2>/dev/null || true
   rm -rf "$HOME/Applications/Halo.app"
-  ditto --norsrc --noextattr "$APP" "$HOME/Applications/Halo.app"
+  ditto --norsrc --noextattr "$SIGNED" "$HOME/Applications/Halo.app"
   xattr -cr "$HOME/Applications/Halo.app"
   codesign --verify --strict "$HOME/Applications/Halo.app"
   open "$HOME/Applications/Halo.app"
