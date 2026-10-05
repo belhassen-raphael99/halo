@@ -38,6 +38,9 @@ PLIST
 
 # Signature : avec le certificat local « Halo Developer » s'il existe (scripts/make-signing-cert.sh),
 # pour que macOS garde l'autorisation Accessibilité d'une version à l'autre ; sinon ad hoc.
+# Le Bureau peut être synchronisé par iCloud, qui ajoute des attributs étendus (FinderInfo) :
+# une signature posée par-dessus est jugée invalide, et macOS refuse alors l'autorisation Accessibilité.
+xattr -cr "$APP"
 IDENTITY="Halo Developer"
 if security find-identity -p codesigning | grep -q "\"$IDENTITY\""; then
   codesign --force --sign "$IDENTITY" "$APP"
@@ -50,7 +53,9 @@ if [[ "${1:-}" == "--install" ]]; then
   mkdir -p "$HOME/Applications"
   pkill -x Halo 2>/dev/null || true
   rm -rf "$HOME/Applications/Halo.app"
-  cp -R "$APP" "$HOME/Applications/Halo.app"
+  ditto --norsrc --noextattr "$APP" "$HOME/Applications/Halo.app"
+  xattr -cr "$HOME/Applications/Halo.app"
+  codesign --verify --strict "$HOME/Applications/Halo.app"
   open "$HOME/Applications/Halo.app"
   echo "Installé → ~/Applications/Halo.app"
 fi

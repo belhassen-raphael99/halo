@@ -96,6 +96,9 @@ final class AppController: NSObject, NSApplicationDelegate {
         panel.orderFrontRegardless()
 
         installMouseMonitors()
+        statusTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.writeStatus() }
+        }
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -152,6 +155,62 @@ final class AppController: NSObject, NSApplicationDelegate {
     // MARK: - Show and hide
 
     /// The global shortcut from Settings, or none.
+    // MARK: - Status
+
+    private var statusTimer: Timer?
+
+    /// What the running bar is doing, for `Halo --status` (checks without looking at the screen).
+    /// Screen points use AppKit coordinates (origin bottom-left).
+    private func writeStatus() {
+        let frame = panel.frame
+        let edge = layout.edge
+        let metrics = layout.metrics
+        let shown = layout.shownStrip(strip)
+        let bar = metrics.barRect(shown, edge: edge, windowSize: frame.size, topInset: layout.topInset)
+        let crossCenter = edge.isHorizontal ? bar.minY + (edge == .top ? layout.topInset : 0) + metrics.barThickness / 2
+                                            : bar.midX
+        func screen(along: CGFloat) -> [Double] {
+            edge.isHorizontal
+                ? [Double(frame.minX + along), Double(frame.maxY - crossCenter)]
+                : [Double(frame.minX + crossCenter), Double(frame.maxY - along)]
+        }
+        let ordered = layout.isCompact ? DockView.byUrgency(store.sessions) : store.sessions
+        let centers: [CGFloat] = layout.isCompact
+            ? (0..<shown.count).map { (edge.isHorizontal ? bar.minX : bar.minY) + metrics.padding + metrics.item / 2
+                + CGFloat($0) * (metrics.item + metrics.spacing) }
+            : metrics.baseCenters(strip, mainLength: edge.isHorizontal ? frame.width : frame.height)
+        let icons: [[String: Any]] = zip(ordered, centers).map { session, center in
+            ["name": session.name, "state": settings.strings.label(session.state), "point": screen(along: center)]
+        }
+        let gearAlong = (edge.isHorizontal ? bar.maxX : bar.maxY) - metrics.padding - metrics.gearSize / 2
+        let status: [String: Any] = [
+            "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev",
+            "accessibilityTrusted": SplitOpener.isTrusted,
+            "hotKey": settings.hotKeyEnabled ? settings.hotKeyLabel : "off",
+            "hotKeyRegistered": HotKey.shared.isRegistered,
+            "hotKeyHandler": Int(HotKey.shared.handlerStatus),
+            "hotKeyPresses": HotKey.shared.presses,
+            "barVisible": panel.isVisible,
+            "edge": edge.rawValue + (layout.notch != nil ? " (notch)" : ""),
+            "language": settings.lang.rawValue,
+            "settingsOpen": settingsWindow.isOpen,
+            "toast": pointer.toast ?? "",
+            "pointerOnBar": !panel.ignoresMouseEvents,
+            "hoveredIcon": pointer.hoveredIndex.map { $0 < ordered.count ? ordered[$0].name : "?" } ?? "",
+            "mouse": [Double(NSEvent.mouseLocation.x), Double(NSEvent.mouseLocation.y)],
+            "panelFrame": [Double(frame.minX), Double(frame.minY), Double(frame.width), Double(frame.height)],
+            "icons": icons,
+            "gear": screen(along: gearAlong),
+            "updatedAt": ISO8601DateFormatter().string(from: Date()),
+        ]
+        let file = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Halo/status.json")
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let data = try? JSONSerialization.data(withJSONObject: status, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: file, options: .atomic)
+        }
+    }
+
     private func registerHotKey() {
         guard settings.hotKeyEnabled else {
             HotKey.shared.unregister()

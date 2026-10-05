@@ -336,6 +336,7 @@ defaults delete com.belhassen.halo
 ```bash
 swift build -c release                                # compile
 .build/release/Halo --dump [en|fr|he]                 # every session, its state, and what its hover card says
+.build/release/Halo --status                          # what the running bar reports: permission, shortcut, icons…
 .build/release/Halo --snapshot <dir>                  # renders the bar in each placement as PNGs
 .build/release/Halo --readme docs/readme              # regenerates this README's artwork
 .build/release/Halo --appicon Resources/AppIcon.icns  # regenerates the app icon

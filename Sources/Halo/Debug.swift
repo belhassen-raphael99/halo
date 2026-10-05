@@ -12,6 +12,13 @@ enum Debug {
             dump(language: index + 1 < arguments.count ? arguments[index + 1] : nil)
             return true
         }
+        if arguments.contains("--status") {
+            // What the running Halo wrote (every 2 s).
+            let file = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support/Halo/status.json")
+            print((try? String(contentsOf: file, encoding: .utf8)) ?? "no status: is Halo running?")
+            return true
+        }
         if let index = arguments.firstIndex(of: "--readme"), index + 1 < arguments.count {
             ReadmeArt.render(into: URL(fileURLWithPath: arguments[index + 1], isDirectory: true))
             return true

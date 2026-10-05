@@ -106,6 +106,7 @@ struct SettingsActions {
 @MainActor
 final class SettingsWindowController {
     private var window: NSWindow?
+    var isOpen: Bool { window?.isVisible ?? false }
     private var labels: [(item: NSTabViewItem, text: (Strings) -> String)] = []
 
     func show(settings: HaloSettings, actions: SettingsActions) {

@@ -7,6 +7,11 @@ final class HotKey {
     static let shared = HotKey()
 
     var onPress: (() -> Void)?
+    /// Whether macOS accepted the current shortcut (another app may already own it).
+    private(set) var isRegistered = false
+    /// Diagnostics for `Halo --status`.
+    private(set) var handlerStatus: OSStatus = 0
+    private(set) var presses = 0
 
     private var hotKey: EventHotKeyRef?
     private var handler: EventHandlerRef?
@@ -16,19 +21,23 @@ final class HotKey {
         unregister()
         installHandlerIfNeeded()
         let id = EventHotKeyID(signature: OSType(0x48414C4F), id: 1) // "HALO"
-        RegisterEventHotKey(keyCode, modifiers, id, GetApplicationEventTarget(), 0, &hotKey)
+        isRegistered = RegisterEventHotKey(keyCode, modifiers, id, GetApplicationEventTarget(), 0, &hotKey) == noErr
     }
 
     func unregister() {
         if let hotKey { UnregisterEventHotKey(hotKey) }
         hotKey = nil
+        isRegistered = false
     }
 
     private func installHandlerIfNeeded() {
         guard handler == nil else { return }
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
-            Task { @MainActor in HotKey.shared.onPress?() }
+        handlerStatus = InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
+            Task { @MainActor in
+                HotKey.shared.presses += 1
+                HotKey.shared.onPress?()
+            }
             return noErr
         }, 1, &spec, nil, &handler)
     }
