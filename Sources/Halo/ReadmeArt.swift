@@ -87,15 +87,18 @@ enum ReadmeArt {
 
     /// The Settings window, drawn by AppKit itself (its controls are AppKit views).
     static func settingsImage(language: LanguageChoice = .en) -> NSImage? {
-        let actions = SettingsActions(hiddenCount: { 2 }, unhideAll: {}, resetPosition: {},
-                                      launchAtLogin: .constant(true))
         let settings = HaloSettings(persistent: false)
         settings.language = language
-        let hosting = NSHostingView(rootView: SettingsView(settings: settings, actions: actions))
+        let tab = AppearanceTab(settings: settings)
+            .formStyle(.grouped)
+            .frame(width: 560, height: 470)
+            .environment(\.strings, settings.strings)
+            .environment(\.layoutDirection, settings.lang.layoutDirection)
+        let hosting = NSHostingView(rootView: tab)
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: hosting.fittingSize), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: .darkAqua)
-        window.backgroundColor = .windowBackgroundColor
+        window.backgroundColor = NSColor.windowBackgroundColor
         window.contentView = hosting
         hosting.layoutSubtreeIfNeeded()
         let bounds = hosting.bounds
@@ -824,7 +827,7 @@ private struct SettingsBoard: View {
     let screenshot: NSImage
 
     static func size(for image: NSImage) -> CGSize {
-        CGSize(width: image.size.width + 240, height: image.size.height + 34 + 120)
+        CGSize(width: image.size.width + 240, height: image.size.height + 34 + 56 + 120)
     }
 
     var body: some View {
@@ -843,6 +846,22 @@ private struct SettingsBoard: View {
                 }
                 .padding(.horizontal, 14)
                 .frame(height: 34)
+                .background(Color(hex: 0x2A2A2D))
+                // The toolbar tabs, Appearance selected.
+                HStack(spacing: 6) {
+                    ForEach(Array([("gearshape", "General"), ("paintbrush", "Appearance"), ("rectangle.stack", "Sessions"),
+                                   ("sparkles", "Animations"), ("app.badge", "Icons")].enumerated()), id: \.offset) { index, tab in
+                        VStack(spacing: 3) {
+                            Image(systemName: tab.0).font(.system(size: 17))
+                            Text(tab.1).font(.system(size: 11))
+                        }
+                        .foregroundStyle(index == 1 ? Color(hex: 0x8D9FFF) : .white.opacity(0.7))
+                        .frame(width: 84, height: 50)
+                        .background(RoundedRectangle(cornerRadius: 7).fill(.white.opacity(index == 1 ? 0.1 : 0)))
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 6)
                 .background(Color(hex: 0x2A2A2D))
                 Image(nsImage: screenshot)
             }

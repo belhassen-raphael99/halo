@@ -11,8 +11,14 @@ import Observation
 @Observable
 final class SessionStore {
     private(set) var sessions: [Session] = []
-    /// Sessions you removed from the bar with ✕ (and that still exist).
-    private(set) var hiddenCount = 0
+    /// Sessions you removed from the bar with ✕ (and that still exist), most recent first.
+    private(set) var hidden: [HiddenSession] = []
+    var hiddenCount: Int { hidden.count }
+
+    struct HiddenSession: Identifiable, Equatable {
+        let id: String
+        let name: String
+    }
 
     /// Live sessions first, then a divider, then paused ones.
     var strip: Strip {
@@ -103,6 +109,12 @@ final class SessionStore {
         refresh()
     }
 
+    func unhide(_ id: String) {
+        hiddenAt[id] = nil
+        saveHidden()
+        refresh()
+    }
+
     private func saveHidden() {
         UserDefaults.standard.set(hiddenAt, forKey: Self.hiddenKey)
     }
@@ -126,9 +138,11 @@ final class SessionStore {
         var live: [(started: Double, session: Session)] = []
         // Every running session, hidden ones included: those are never "paused".
         var runningIds = Set<String>()
+        var liveNames: [String: String] = [:]
         for entry in readRegistry() {
             let id = entry.hostSessionId ?? "pid-\(entry.pid)"
             runningIds.insert(id)
+            liveNames[id] = entry.name
             let record = entry.hostSessionId.flatMap { desktop[$0] }
             let status = entry.status ?? "idle"
             let started = entry.startedAt ?? 0
@@ -192,7 +206,11 @@ final class SessionStore {
             for key in gone { hiddenAt[key] = nil }
             saveHidden()
         }
-        if hiddenCount != hiddenAt.count { hiddenCount = hiddenAt.count }
+        let hiddenNow = hiddenAt.sorted { $0.value > $1.value }.map { id, _ in
+            HiddenSession(id: id, name: [liveNames[id], desktop[id]?.title].compactMap { $0 }.first { !$0.isEmpty }
+                ?? "Session")
+        }
+        if hiddenNow != hidden { hidden = hiddenNow }
 
         let next = live.map(\.session) + paused
         if let onStateChange {

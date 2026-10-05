@@ -69,6 +69,7 @@ final class AppController: NSObject, NSApplicationDelegate {
                 guard let self, !dragging, Date().timeIntervalSince(lastDragEnd) > 0.3 else { return }
                 showSettings()
             },
+            hideBar: { [weak self] in self?.panel.orderOut(nil) },
             showWaiting: { Self.openURL("claude://code/needs-input") },
             launchAtLogin: Binding(get: { Self.launchesAtLogin }, set: { Self.setLaunchAtLogin($0) }),
             quit: { NSApp.terminate(nil) }
@@ -84,8 +85,11 @@ final class AppController: NSObject, NSApplicationDelegate {
         settings.onChange = { [weak self] in
             guard let self else { return }
             applyPlacement(animated: false)
-            settingsWindow.updateTitle(settings.strings)
+            settingsWindow.updateLanguage(settings.strings)
+            registerHotKey()
         }
+        HotKey.shared.onPress = { [weak self] in self?.toggleBar() }
+        registerHotKey()
         store.start()
         strip = store.strip
         applyPlacement(animated: false)
@@ -140,10 +144,30 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     private func showSettings() {
         settingsWindow.show(settings: settings, actions: SettingsActions(
-            hiddenCount: { [weak self] in self?.store.hiddenCount ?? 0 },
-            unhideAll: { [weak self] in self?.store.unhideAll() },
+            store: store,
             resetPosition: { [weak self] in self?.resetPosition() },
             launchAtLogin: Binding(get: { Self.launchesAtLogin }, set: { Self.setLaunchAtLogin($0) })))
+    }
+
+    // MARK: - Show and hide
+
+    /// The global shortcut from Settings, or none.
+    private func registerHotKey() {
+        guard settings.hotKeyEnabled else {
+            HotKey.shared.unregister()
+            return
+        }
+        HotKey.shared.register(keyCode: UInt32(settings.hotKeyCode), modifiers: UInt32(settings.hotKeyModifiers))
+    }
+
+    private func toggleBar() {
+        if panel.isVisible { panel.orderOut(nil) } else { panel.orderFrontRegardless() }
+    }
+
+    /// Opening Halo again (Finder, Spotlight) brings a hidden bar back.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        panel.orderFrontRegardless()
+        return false
     }
 
     private func resetPosition() {

@@ -71,6 +71,7 @@ Hover any icon to see a small card: the **exact question** with its choices, the
 | **✕** on hover | Takes the icon off the bar. It comes back by itself on the session's next turn. |
 | **Pinch** | Shrinks or grows the whole bar |
 | **⚙︎** at the end of the bar | Opens Settings |
+| **⌃⌥H** (configurable) | Shows or hides the bar, from any app |
 | **Right-click** | Menu: sessions waiting for you, size, removed sessions, Settings, Quit |
 
 The interface speaks English, French and Hebrew (right to left).
@@ -153,7 +154,7 @@ The symbol and gradient come from the session's name and folder. Rules are check
 | Ideas (idea, brainstorm, project…) | `lightbulb.fill` | `#FFD84D → #F59E0B` |
 | Anything else | `sparkle` | one of six gradients, from a hash of the name |
 
-**Your own icons.** Add rules of your own in `~/Library/Application Support/Halo/icon-rules.json`. They are checked first, stay on your Mac, and take effect at the next launch:
+**Your own icons.** Add your own rules in **Settings → Icons**: keywords, a symbol from the picker (or any SF Symbol name) and two colors, with a field to test a session name. They are checked first and stay on your Mac, in `~/Library/Application Support/Halo/icon-rules.json`:
 
 ```json
 [
@@ -210,7 +211,9 @@ Halo reads three things Claude already keeps on disk, and never writes to them.
 | `LayerEffects.swift` | Core Animation effects: aurora and comet, alert pulse, breathing, light sweep |
 | `SessionDetail.swift` | Transcript reading and the hover card |
 | `SplitOpener.swift` | Side-by-side opening through the Claude app's menu |
-| `Settings.swift` | Settings model and window |
+| `Settings.swift` | Settings model and the tabbed Settings window (live preview, shortcut recorder) |
+| `IconRules.swift` | Your icon rules: storage and the symbol choices |
+| `HotKey.swift` | The global shortcut (Carbon hot key) |
 | `Localization.swift` | Every interface string in English, French and Hebrew |
 | `DockMetrics.swift` | Shared geometry |
 | `ReadmeArt.swift` | This README's artwork, drawn by Halo's own views |
@@ -233,7 +236,7 @@ All continuous effects now run as Core Animation layers, which the system's rend
 
 ### Privacy
 
-- **Read-only.** Halo never writes to Claude's files; its own settings live in its own preferences.
+- **Read-only on Claude.** Halo never writes to Claude's files. It only writes its own settings and your icon rules (`~/Library/Application Support/Halo`).
 - **Offline.** No network, no analytics, no API key.
 - **Your call.** Side-by-side opening needs the Accessibility permission, which only you can grant. Everything else works without it.
 
@@ -245,7 +248,17 @@ All continuous effects now run as Core Animation layers, which the system's rend
   <img src="docs/readme/settings.png" alt="Settings window" width="70%">
 </p>
 
-Click the **⚙︎** at the end of the bar (or right-click → *Settings…*). Every change applies live and is saved instantly.
+Click the **⚙︎** at the end of the bar (or right-click → *Settings…*). Five tabs, like Safari's settings; every change applies live and is saved instantly:
+
+| Tab | What you set |
+|---|---|
+| **General** | Language · open at login · the global shortcut to show or hide the bar · side-by-side permission · put the bar back · defaults |
+| **Appearance** | A **live preview** of the bar · icon size · magnification · icons shown in the notch |
+| **Sessions** | Paused sessions (how recent, how many, and how many are shown now) · hover card · **removed sessions, one by one** |
+| **Animations** | Each effect on or off · sounds, with a button to hear them |
+| **Icons** | **Your own icon rules**: keywords, symbol, colors, and a field to test a name |
+
+Light or dark: the bar, the cards and the notes follow your Mac's appearance.
 
 <details>
 <summary><b>All settings and their defaults</b></summary>
@@ -264,6 +277,7 @@ Click the **⚙︎** at the end of the bar (or right-click → *Settings…*). E
 | Bounces when a session needs you | On |
 | Sparks when a session is done | On |
 | Sound when a session needs you / is done | Off (system sounds *Glass* / *Pop*) |
+| Show or hide the bar | ⌃⌥H (record any shortcut, or clear it) |
 | Open Halo at login | Off |
 
 The window also shows the Accessibility status, removed sessions (with a button to bring them back), *put the bar back at the bottom*, and *restore defaults*.
@@ -327,7 +341,7 @@ swift build -c release                                # compile
 .build/release/Halo --appicon Resources/AppIcon.icns  # regenerates the app icon
 ```
 
-> **Signing.** Local builds are signed ad hoc. macOS ties the Accessibility permission to the exact build, so after a rebuild you need to grant it again (remove Halo from the list, then add it back).
+> **Signing.** macOS ties the Accessibility permission to the app's signature. Run `./scripts/make-signing-cert.sh` once: it creates a local "Halo Developer" certificate in your login keychain, and `build-app.sh` then signs every build with it, so the permission survives rebuilds. Without it, builds are signed ad hoc and you have to grant the permission again after each rebuild.
 
 ### Limitations and roadmap
 

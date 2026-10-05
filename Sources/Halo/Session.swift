@@ -51,7 +51,7 @@ struct Session: Identifiable, Equatable {
     let stateSince: Double
 
     var isLive: Bool { pid != nil }
-    var icon: AppIcon { AppIcon.for(name: name, cwd: cwd) }
+    @MainActor var icon: AppIcon { AppIcon.for(name: name, cwd: cwd) }
 }
 
 /// An Apple-style app icon: a symbol on a gradient tile, picked from the session's
@@ -61,51 +61,12 @@ struct AppIcon: Equatable {
     let top: Color
     let bottom: Color
 
-    private struct Rule: Decodable {
+    private struct Rule {
         let keywords: [String]
         let symbol: String
         let top: UInt32
         let bottom: UInt32
-
-        init(keywords: [String], symbol: String, top: UInt32, bottom: UInt32) {
-            self.keywords = keywords
-            self.symbol = symbol
-            self.top = top
-            self.bottom = bottom
-        }
-
-        /// In the custom rules file, colors are written "#RRGGBB".
-        init(from decoder: Decoder) throws {
-            enum Key: String, CodingKey { case keywords, symbol, top, bottom }
-            let values = try decoder.container(keyedBy: Key.self)
-            func color(_ key: Key) throws -> UInt32 {
-                let text = try values.decode(String.self, forKey: key).trimmingCharacters(in: CharacterSet(charactersIn: "#"))
-                guard let value = UInt32(text, radix: 16) else {
-                    throw DecodingError.dataCorruptedError(forKey: key, in: values, debugDescription: "expected #RRGGBB")
-                }
-                return value
-            }
-            keywords = try values.decode([String].self, forKey: .keywords)
-            symbol = try values.decode(String.self, forKey: .symbol)
-            top = try color(.top)
-            bottom = try color(.bottom)
-        }
     }
-
-    /// Your own rules, checked before the built-in ones. They live on your Mac only:
-    /// `~/Library/Application Support/Halo/icon-rules.json`, a list of
-    /// `{"keywords": ["acme"], "symbol": "building.2.fill", "top": "#64C8FF", "bottom": "#0066E0"}`.
-    private static let customRules: [Rule] = {
-        let file = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Halo/icon-rules.json")
-        guard let data = try? Data(contentsOf: file),
-              let rules = try? JSONDecoder().decode([Rule].self, from: data) else { return [] }
-        return rules.map { rule in
-            Rule(keywords: rule.keywords.map {
-                $0.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
-            }, symbol: rule.symbol, top: rule.top, bottom: rule.bottom)
-        }
-    }()
 
     // First match wins, so the most specific subjects come first.
     private static let rules: [Rule] = [
@@ -152,21 +113,40 @@ struct AppIcon: Equatable {
         (0x5EE08A, 0x15A34A), (0xFF9EC0, 0xE2457A), (0xFFB340, 0xE8590C),
     ]
 
-    static func `for`(name: String, cwd: String) -> AppIcon {
+    /// Where an icon comes from: your rule, Halo's, or the default.
+    enum Source: Equatable {
+        case yours, halo, fallback
+    }
+
+    @MainActor
+    static func `for`(name: String, cwd: String) -> AppIcon { match(name: name, cwd: cwd).icon }
+
+    @MainActor
+    static func match(name: String, cwd: String) -> (icon: AppIcon, source: Source) {
         let folder = URL(fileURLWithPath: cwd).lastPathComponent
         let text = "\(name) \(folder)"
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
         let words = Set(text.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init))
-        for rule in customRules + rules where rule.keywords.contains(where: { key in
-            // Short keywords must be whole words: "ia" must not match "media".
-            key.count <= 3 ? words.contains(key) : text.contains(key)
-        }) {
-            return AppIcon(symbol: rule.symbol, top: Color(hex: rule.top), bottom: Color(hex: rule.bottom))
+        func matches(_ keywords: [String]) -> Bool {
+            keywords.contains { raw in
+                let key = raw.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+                    .trimmingCharacters(in: .whitespaces)
+                // Short keywords must be whole words: "ia" must not match "media".
+                return !key.isEmpty && (key.count <= 3 ? words.contains(key) : text.contains(key))
+            }
+        }
+        for rule in IconRulesStore.shared.rules where matches(rule.keywords) {
+            if let top = CustomIconRule.hex(rule.top), let bottom = CustomIconRule.hex(rule.bottom) {
+                return (AppIcon(symbol: rule.symbol, top: Color(hex: top), bottom: Color(hex: bottom)), .yours)
+            }
+        }
+        for rule in rules where matches(rule.keywords) {
+            return (AppIcon(symbol: rule.symbol, top: Color(hex: rule.top), bottom: Color(hex: rule.bottom)), .halo)
         }
         var hash: UInt64 = 1469598103934665603
         for byte in name.utf8 { hash = (hash ^ UInt64(byte)) &* 1099511628211 }
         let pair = fallbacks[Int(hash % UInt64(fallbacks.count))]
-        return AppIcon(symbol: "sparkle", top: Color(hex: pair.0), bottom: Color(hex: pair.1))
+        return (AppIcon(symbol: "sparkle", top: Color(hex: pair.0), bottom: Color(hex: pair.1)), .fallback)
     }
 }
 

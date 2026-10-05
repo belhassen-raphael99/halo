@@ -56,13 +56,14 @@ struct DockActions {
     let unhideAll: () -> Void
     let setIconSize: (CGFloat) -> Void
     let showSettings: () -> Void
+    let hideBar: () -> Void
     let showWaiting: () -> Void
     let launchAtLogin: Binding<Bool>
     let quit: () -> Void
 
     static var none: DockActions {
         DockActions(open: { _ in }, openBeside: { _ in }, close: { _ in }, unhideAll: {}, setIconSize: { _ in },
-                    showSettings: {}, showWaiting: {},
+                    showSettings: {}, hideBar: {}, showWaiting: {},
                     launchAtLogin: .constant(false), quit: {})
     }
 }
@@ -82,6 +83,11 @@ struct DockEffects: Equatable {
     var details = true
 }
 
+/// Marks drawn on the bar itself: white on the black notch island, the system's text color on glass.
+private struct BarForegroundKey: EnvironmentKey {
+    static let defaultValue = Color.primary
+}
+
 private struct DockEffectsKey: EnvironmentKey {
     static let defaultValue = DockEffects()
 }
@@ -95,6 +101,11 @@ extension EnvironmentValues {
     var offscreen: Bool {
         get { self[OffscreenKey.self] }
         set { self[OffscreenKey.self] = newValue }
+    }
+
+    var barForeground: Color {
+        get { self[BarForegroundKey.self] }
+        set { self[BarForegroundKey.self] = newValue }
     }
 
     var dockEffects: DockEffects {
@@ -151,6 +162,7 @@ struct DockView: View {
         }
         .environment(\.dockEffects, effects)
         .environment(\.strings, settings.strings)
+        .environment(\.barForeground, layout.edge == .top && layout.notch != nil ? .white : .primary)
     }
 
     private func bar(edge: DockEdge, metrics: DockMetrics, sessions: [Session], strip: Strip,
@@ -186,12 +198,12 @@ struct DockView: View {
             if let toast = pointer.toast {
                 Text(toast)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 300)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(GlassBackground(cornerRadius: 10))
+                    .background(GlassBackground(cornerRadius: 10, solid: true))
                     .fixedSize(horizontal: false, vertical: true)
                     .modifier(BubblePlacement(edge: edge))
                     .environment(\.layoutDirection, layout.settings.lang.layoutDirection)
@@ -241,6 +253,8 @@ struct DockView: View {
             }
             Toggle(s.launchAtLogin, isOn: actions.launchAtLogin)
             Button(s.settingsItem, action: actions.showSettings)
+            Button(layout.settings.hotKeyEnabled ? "\(s.hideBar)  \(layout.settings.hotKeyLabel)" : s.hideBar,
+                   action: actions.hideBar)
             Divider()
             Button(s.quit, action: actions.quit)
         }
@@ -339,6 +353,7 @@ struct IconView: View {
     let close: () -> Void
     @Environment(\.dockEffects) private var effects
     @Environment(\.strings) private var strings
+    @Environment(\.barForeground) private var barForeground
 
     var body: some View {
         let dot = 7 * metrics.unit
@@ -355,7 +370,7 @@ struct IconView: View {
             // The Dock's "running" dot: live sessions have one, paused ones don't.
             if session.isLive {
                 Circle()
-                    .fill(.white.opacity(0.8))
+                    .fill(barForeground.opacity(0.7))
                     .frame(width: 4, height: 4)
                     .offset(x: -edge.away.width * dot, y: -edge.away.height * dot)
             }
@@ -440,14 +455,15 @@ private struct GearButton: View {
     let size: CGFloat
     let action: () -> Void
     @Environment(\.strings) private var strings
+    @Environment(\.barForeground) private var foreground
 
     var body: some View {
         Image(systemName: "gearshape.fill")
             .font(.system(size: size * 0.6, weight: .semibold))
-            .foregroundStyle(.white.opacity(0.78))
+            .foregroundStyle(foreground.opacity(0.75))
             .frame(width: size, height: size)
-            .background(Circle().fill(.white.opacity(0.1)))
-            .overlay(Circle().strokeBorder(.white.opacity(0.2), lineWidth: 0.5))
+            .background(Circle().fill(foreground.opacity(0.1)))
+            .overlay(Circle().strokeBorder(foreground.opacity(0.2), lineWidth: 0.5))
             .contentShape(Circle())
             .onTapGesture(perform: action)
             .accessibilityLabel(strings.settingsItem)
@@ -726,11 +742,12 @@ private struct ScrollIndicator: View {
 private struct DockDivider: View {
     let edge: DockEdge
     let metrics: DockMetrics
+    @Environment(\.barForeground) private var foreground
 
     var body: some View {
         let long = metrics.item * 0.7
         Capsule()
-            .fill(.white.opacity(0.3))
+            .fill(foreground.opacity(0.3))
             .frame(width: edge.isHorizontal ? metrics.dividerThickness : long,
                    height: edge.isHorizontal ? long : metrics.dividerThickness)
             .padding(edge.swiftUIEdge, (metrics.item - long) / 2)
@@ -742,19 +759,20 @@ private struct EmptyIcon: View {
     let metrics: DockMetrics
     let showLabel: Bool
     @Environment(\.strings) private var strings
+    @Environment(\.barForeground) private var foreground
 
     var body: some View {
         tile(metrics.item)
-            .strokeBorder(.white.opacity(0.35), style: StrokeStyle(lineWidth: 1.5, dash: [3, 4]))
+            .strokeBorder(foreground.opacity(0.35), style: StrokeStyle(lineWidth: 1.5, dash: [3, 4]))
             .frame(width: metrics.item, height: metrics.item)
             .overlay(alignment: edge.awayAlignment) {
                 if showLabel {
                     Text(strings.noSessions)
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.primary)
                         .padding(.horizontal, 11)
                         .padding(.vertical, 6)
-                        .background(GlassBackground(cornerRadius: 9))
+                        .background(GlassBackground(cornerRadius: 9, solid: true))
                         .fixedSize()
                         .modifier(BubblePlacement(edge: edge))
                         .allowsHitTesting(false)
@@ -791,33 +809,38 @@ struct NotchIsland: Shape {
     }
 }
 
-/// Dark frosted glass that blurs whatever sits behind the window, like the Dock.
+/// Frosted glass that blurs whatever sits behind the window, like the Dock. It follows the
+/// Mac's light or dark mode, and the text on it uses the matching colors (`.primary`…).
+/// `solid` (cards, notes) is more opaque, so text stays readable over busy windows.
 struct GlassBackground: View {
     let cornerRadius: CGFloat
+    var solid = false
     @Environment(\.offscreen) private var offscreen
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Group {
             if offscreen {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Color(white: 0.16).opacity(0.92))
+                    .fill(colorScheme == .dark ? Color(white: 0.16).opacity(0.92) : Color(white: 0.93).opacity(0.96))
             } else {
-                VisualEffect(cornerRadius: cornerRadius)
+                VisualEffect(cornerRadius: cornerRadius, material: solid ? .popover : .hudWindow)
             }
         }
         .overlay(
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .strokeBorder(.white.opacity(0.16), lineWidth: 0.5)
+                .strokeBorder(Color.primary.opacity(0.14), lineWidth: 0.5)
         )
     }
 }
 
 private struct VisualEffect: NSViewRepresentable {
     let cornerRadius: CGFloat
+    let material: NSVisualEffectView.Material
 
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        view.material = .hudWindow
+        view.material = material
         view.blendingMode = .behindWindow
         view.state = .active
         view.wantsLayer = true

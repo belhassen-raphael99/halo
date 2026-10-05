@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="0.2.1"
+VERSION="0.3.0"
 APP="build/Halo.app"
 
 swift build -c release
@@ -36,8 +36,14 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Signature locale (ad hoc) : suffit pour lancer l'app sur ce Mac.
-codesign --force --sign - "$APP"
+# Signature : avec le certificat local « Halo Developer » s'il existe (scripts/make-signing-cert.sh),
+# pour que macOS garde l'autorisation Accessibilité d'une version à l'autre ; sinon ad hoc.
+IDENTITY="Halo Developer"
+if security find-identity -p codesigning | grep -q "\"$IDENTITY\""; then
+  codesign --force --sign "$IDENTITY" "$APP"
+else
+  codesign --force --sign - "$APP"
+fi
 echo "OK → $APP"
 
 if [[ "${1:-}" == "--install" ]]; then

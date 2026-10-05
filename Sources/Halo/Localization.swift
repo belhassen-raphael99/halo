@@ -204,6 +204,92 @@ struct Strings: Sendable {
     var openSystemSettings: String { pick("Ouvrir les réglages", "Open Settings", "פתיחת ההגדרות") }
     var resetPosition: String { pick("Remettre la barre en bas de l'écran", "Put the bar back at the bottom", "החזרת הסרגל לתחתית המסך") }
     var resetDefaults: String { pick("Réglages par défaut", "Restore defaults", "שחזור ברירות מחדל") }
+
+    // MARK: Settings tabs
+
+    var tabGeneral: String { pick("Général", "General", "כללי") }
+    var tabAppearance: String { pick("Apparence", "Appearance", "מראה") }
+    var tabSessions: String { pick("Sessions", "Sessions", "סשנים") }
+    var tabAnimations: String { pick("Animations", "Animations", "אנימציות") }
+    var tabIcons: String { pick("Icônes", "Icons", "סמלים") }
+
+    // General
+    var shortcut: String { pick("Afficher ou masquer la barre", "Show or hide the bar", "הצגה או הסתרה של הסרגל") }
+    var shortcutRecord: String { pick("Cliquer pour enregistrer", "Click to record", "לחץ להקלטה") }
+    var shortcutRecording: String { pick("Tape le raccourci…", "Type the shortcut…", "הקלד את הקיצור…") }
+    var shortcutClear: String { pick("Effacer", "Clear", "ניקוי") }
+    var shortcutFooter: String {
+        pick("Fonctionne depuis n'importe quelle app. Barre masquée ? Ce raccourci, ou rouvrir Halo, la fait revenir.",
+             "Works from any app. Bar hidden? This shortcut, or opening Halo again, brings it back.",
+             "עובד מכל אפליקציה. הסרגל מוסתר? הקיצור הזה, או פתיחה מחדש של Halo, יחזירו אותו.")
+    }
+    var sideBySideFooter: String {
+        pick("Le ⌥-clic ouvre un panneau à droite dans Claude ; tu y choisis ensuite la session dans sa barre latérale.",
+             "⌥-click opens a pane on the right in Claude; then pick the session in its sidebar.",
+             "⌥-לחיצה פותחת חלונית מימין ב־Claude; אחר כך בוחרים את הסשן בסרגל הצד שלו.")
+    }
+    var position: String { pick("Position", "Position", "מיקום") }
+    var hideBar: String { pick("Masquer la barre", "Hide the bar", "הסתרת הסרגל") }
+
+    // Appearance
+    var preview: String { pick("Aperçu", "Preview", "תצוגה מקדימה") }
+    var notchFooter: String {
+        pick("Quand la barre est fondue dans l'encoche, en haut de l'écran : les autres défilent au survol.",
+             "When the bar is melted into the notch, at the top of the screen: the others scroll on hover.",
+             "כשהסרגל משולב בחריץ בראש המסך: השאר נגללים במעבר עכבר.")
+    }
+
+    // Sessions
+    var pausedWithin: String { pick("Utilisées dans les derniers", "Used within the last", "בשימוש ב־") }
+    func pausedShown(_ count: Int) -> String {
+        switch lang {
+        case .fr: return count == 0 ? "Aucune session en pause affichée" : "\(count) session\(count > 1 ? "s" : "") en pause affichée\(count > 1 ? "s" : "")"
+        case .en: return count == 0 ? "No paused session shown" : "\(count) paused session\(count > 1 ? "s" : "") shown"
+        case .he: return count == 0 ? "לא מוצגים סשנים מושהים" : "מוצגים \(count) סשנים מושהים"
+        }
+    }
+    var pausedOffFooter: String {
+        pick("Les sessions de Claude qui ne tournent pas restent cachées.",
+             "Claude sessions that aren't running stay hidden.",
+             "סשנים של Claude שלא רצים נשארים מוסתרים.")
+    }
+    var removedEmpty: String {
+        pick("Aucune. Survole une icône et clique ✕ pour la retirer de la barre.",
+             "None. Hover an icon and click ✕ to remove it from the bar.",
+             "אין. העבר את העכבר על סמל ולחץ ✕ כדי להסיר אותו מהסרגל.")
+    }
+    var removedFooter: String {
+        pick("Une session retirée revient d'elle-même quand tu lui envoies un nouveau message.",
+             "A removed session comes back by itself when you send it a new message.",
+             "סשן שהוסר חוזר מעצמו כששולחים לו הודעה חדשה.")
+    }
+    var showAllAgain: String { pick("Tout réafficher", "Show all again", "הצגת הכל מחדש") }
+
+    // Animations
+    var play: String { pick("Écouter", "Play", "השמעה") }
+
+    // Icons
+    var iconsIntro: String {
+        pick("L'icône d'une session vient des mots de son nom ou de son dossier. Tes règles passent avant celles de Halo et restent sur ce Mac.",
+             "A session's icon comes from the words in its name or folder. Your rules come before Halo's and stay on this Mac.",
+             "הסמל של סשן נקבע לפי המילים בשם או בתיקייה שלו. הכללים שלך קודמים לכללים של Halo ונשארים במק הזה.")
+    }
+    var tryName: String { pick("Tester un nom", "Try a name", "בדיקת שם") }
+    var tryPlaceholder: String { pick("ex. Refonte du site client", "e.g. Client website redesign", "למשל: עיצוב מחדש לאתר לקוח") }
+    var sourceYours: String { pick("ta règle", "your rule", "הכלל שלך") }
+    var sourceHalo: String { pick("règle de Halo", "Halo's rule", "כלל של Halo") }
+    var sourceFallback: String { pick("icône par défaut", "default icon", "סמל ברירת מחדל") }
+    var yourRules: String { pick("Tes règles", "Your rules", "הכללים שלך") }
+    var addRule: String { pick("Ajouter une règle", "Add a rule", "הוספת כלל") }
+    var noRules: String { pick("Aucune règle pour l'instant.", "No rule yet.", "אין עדיין כללים.") }
+    var keywords: String { pick("Mots-clés, séparés par des virgules", "Keywords, separated by commas", "מילות מפתח, מופרדות בפסיקים") }
+    var symbolName: String { pick("Symbole", "Symbol", "סמל") }
+    var unknownSymbol: String { pick("symbole inconnu", "unknown symbol", "סמל לא מוכר") }
+    var colorTop: String { pick("Haut", "Top", "למעלה") }
+    var colorBottom: String { pick("Bas", "Bottom", "למטה") }
+    var delete: String { pick("Supprimer", "Delete", "מחיקה") }
+    var done: String { pick("OK", "Done", "סיום") }
+    var edit: String { pick("Modifier", "Edit", "עריכה") }
 }
 
 private struct StringsKey: EnvironmentKey {

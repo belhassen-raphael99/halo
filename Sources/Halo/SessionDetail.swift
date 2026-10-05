@@ -199,12 +199,12 @@ struct SessionCard: View {
                 Circle().fill(color).frame(width: 7, height: 7)
                 Text(session.name)
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 Text(strings.elapsed(sinceMs: session.stateSince))
                     .font(.system(size: 10.5))
-                    .foregroundStyle(.white.opacity(0.55))
+                    .foregroundStyle(.secondary)
                     .fixedSize()
             }
             if showDetails, let shown {
@@ -215,44 +215,44 @@ struct SessionCard: View {
                 ForEach(Array(shown.lines.enumerated()), id: \.offset) { _, line in
                     Text(line)
                         .font(.system(size: 11.5))
-                        .foregroundStyle(.white.opacity(0.88))
+                        .foregroundStyle(.primary)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if let code = shown.code {
                     Text(code)
                         .font(.system(size: 10.5, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.9))
+                        .foregroundStyle(.primary)
                         .lineLimit(2)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 5)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                 }
                 if !shown.options.isEmpty {
                     VStack(alignment: .leading, spacing: 3) {
                         ForEach(shown.options, id: \.self) { option in
                             Label(option, systemImage: "circle")
                                 .font(.system(size: 11))
-                                .foregroundStyle(.white.opacity(0.8))
+                                .foregroundStyle(.primary.opacity(0.8))
                                 .lineLimit(1)
                         }
                     }
                 }
                 Text(hint)
                     .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.45))
+                    .foregroundStyle(.tertiary)
             } else {
                 Text(strings.label(session.state))
                     .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.7))
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 11)
         .padding(.vertical, 9)
         .frame(width: showDetails && shown != nil ? 290 : nil, alignment: .leading)
         .frame(maxWidth: 290)
-        .background(GlassBackground(cornerRadius: 12))
+        .background(GlassBackground(cornerRadius: 12, solid: true))
         .environment(\.layoutDirection, strings.lang.layoutDirection)
         .task(id: "\(session.id)|\(session.state)|\(session.stateSince)|\(strings.lang)") {
             guard showDetails, preset == nil else { return }
@@ -265,7 +265,7 @@ struct SessionCard: View {
         case .needsYou: return Palette.alert
         case .done: return Palette.done
         case .working: return Palette.aurora[2]
-        case .rest: return .white.opacity(0.7)
+        case .rest: return .secondary
         case .paused: return Color(white: 0.6)
         }
     }
