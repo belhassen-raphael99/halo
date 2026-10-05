@@ -150,6 +150,14 @@ The symbol and gradient come from the session's name and folder. Rules are check
 | Ideas (idea, brainstorm, project…) | `lightbulb.fill` | `#FFD84D → #F59E0B` |
 | Anything else | `sparkle` | one of six gradients, from a hash of the name |
 
+**Your own icons.** Add rules of your own in `~/Library/Application Support/Halo/icon-rules.json`. They are checked first, stay on your Mac, and take effect at the next launch:
+
+```json
+[
+  { "keywords": ["acme", "client"], "symbol": "building.2.fill", "top": "#64C8FF", "bottom": "#0066E0" }
+]
+```
+
 </details>
 
 <details>
