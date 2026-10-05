@@ -1,0 +1,9 @@
+.build/
+build/
+.DS_Store
+*.xcodeproj
+.swiftpm/
+
+# Notes et réglages locaux de l’agent : jamais publiés
+CLAUDE.md
+.claude/
