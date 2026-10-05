@@ -11,8 +11,11 @@ final class HaloSettings {
     /// The interface language: French, English, Hebrew, or the Mac's own.
     var language: LanguageChoice = .automatic { didSet { changed("language", language.rawValue) } }
     var iconSize: Double = DockMetrics.standardItem { didSet { changed("iconSize", iconSize) } }
-    /// Dock-style magnification under the pointer; 1 turns it off.
+    /// Dock-style magnification under the pointer.
+    var zoomEnabled = true { didSet { changed("zoomEnabled", zoomEnabled) } }
     var magnification: Double = 1.55 { didSet { changed("magnification", magnification) } }
+    /// The notch shows few icons: there, the hovered one only grows a little, unless this is on.
+    var zoomInNotch = false { didSet { changed("zoomInNotch", zoomInNotch) } }
     /// Icons shown at once when the bar is docked into the notch.
     var compactVisible: Int = 3 { didSet { changed("compactVisible", compactVisible) } }
 
@@ -23,11 +26,24 @@ final class HaloSettings {
     var showDetails = true { didSet { changed("showDetails", showDetails) } }
 
     var workingEffects = true { didSet { changed("workingEffects", workingEffects) } }
+    /// What a working session looks like: ring, glow, comet, trace, waves or dots.
+    var workingStyle = WorkingStyle.aurora { didSet { changed("workingStyle", workingStyle.rawValue) } }
     var bounce = true { didSet { changed("bounce", bounce) } }
     var celebration = true { didSet { changed("celebration", celebration) } }
 
     var soundWhenWaiting = false { didSet { changed("soundWhenWaiting", soundWhenWaiting) } }
     var soundWhenDone = false { didSet { changed("soundWhenDone", soundWhenDone) } }
+    /// macOS notifications, clickable to open the session.
+    var notifyWaiting = false { didSet { changed("notifyWaiting", notifyWaiting) } }
+    var notifyDone = false { didSet { changed("notifyDone", notifyDone) } }
+
+    /// The bar fades away when nothing needs you, or over a full-screen app.
+    var hideWhenCalm = false { didSet { changed("hideWhenCalm", hideWhenCalm) } }
+    var hideInFullScreen = false { didSet { changed("hideInFullScreen", hideInFullScreen) } }
+
+    var sessionOrder = SessionOrder.opened { didSet { changed("sessionOrder", sessionOrder.rawValue) } }
+    /// Project folders whose sessions stay off the bar.
+    var excludedProjects: [String] = [] { didSet { changed("excludedProjects", excludedProjects) } }
 
     /// The system-wide shortcut that shows or hides the bar (Carbon key code and modifier mask).
     var hotKeyEnabled = true { didSet { changed("hotKeyEnabled", hotKeyEnabled) } }
@@ -54,16 +70,30 @@ final class HaloSettings {
         load("language") { (raw: String) in language = LanguageChoice(rawValue: raw) ?? .automatic }
         load("iconSize") { iconSize = $0 }
         load("magnification") { magnification = $0 }
+        // Before 0.4 a magnification of 1 meant "off".
+        if saved.object(forKey: Self.prefix + "zoomEnabled") == nil, magnification < 1.02 {
+            zoomEnabled = false
+            magnification = 1.55
+        }
+        load("zoomEnabled") { zoomEnabled = $0 }
+        load("zoomInNotch") { zoomInNotch = $0 }
         load("compactVisible") { compactVisible = $0 }
         load("showPaused") { showPaused = $0 }
         load("pausedDays") { pausedDays = $0 }
         load("pausedLimit") { pausedLimit = $0 }
         load("showDetails") { showDetails = $0 }
         load("workingEffects") { workingEffects = $0 }
+        load("workingStyle") { (raw: String) in workingStyle = WorkingStyle(rawValue: raw) ?? .aurora }
         load("bounce") { bounce = $0 }
         load("celebration") { celebration = $0 }
         load("soundWhenWaiting") { soundWhenWaiting = $0 }
         load("soundWhenDone") { soundWhenDone = $0 }
+        load("notifyWaiting") { notifyWaiting = $0 }
+        load("notifyDone") { notifyDone = $0 }
+        load("hideWhenCalm") { hideWhenCalm = $0 }
+        load("hideInFullScreen") { hideInFullScreen = $0 }
+        load("sessionOrder") { (raw: String) in sessionOrder = SessionOrder(rawValue: raw) ?? .opened }
+        load("excludedProjects") { excludedProjects = $0 }
         load("hotKeyEnabled") { hotKeyEnabled = $0 }
         load("hotKeyCode") { hotKeyCode = $0 }
         load("hotKeyModifiers") { hotKeyModifiers = $0 }
@@ -74,17 +104,23 @@ final class HaloSettings {
         let defaults = HaloSettings(persistent: false)
         // The language stays: "defaults" is about how the bar looks and behaves.
         iconSize = defaults.iconSize
+        zoomEnabled = defaults.zoomEnabled
         magnification = defaults.magnification
+        zoomInNotch = defaults.zoomInNotch
         compactVisible = defaults.compactVisible
         showPaused = defaults.showPaused
         pausedDays = defaults.pausedDays
         pausedLimit = defaults.pausedLimit
         showDetails = defaults.showDetails
         workingEffects = defaults.workingEffects
+        workingStyle = defaults.workingStyle
         bounce = defaults.bounce
         celebration = defaults.celebration
         soundWhenWaiting = defaults.soundWhenWaiting
         soundWhenDone = defaults.soundWhenDone
+        hideWhenCalm = defaults.hideWhenCalm
+        hideInFullScreen = defaults.hideInFullScreen
+        sessionOrder = defaults.sessionOrder
     }
 
     private func changed(_ key: String, _ value: Any) {
@@ -94,11 +130,20 @@ final class HaloSettings {
     }
 }
 
+/// The order of the icons on the bar (pinned sessions always come first).
+enum SessionOrder: String, CaseIterable, Identifiable, Sendable {
+    case opened, recent, name, urgency
+    var id: String { rawValue }
+}
+
 // MARK: - Window
 
 struct SettingsActions {
     let store: SessionStore
-    let resetPosition: () -> Void
+    let layout: DockLayout
+    /// "bottom", "top", "left", "right" or "floating".
+    let place: (String) -> Void
+    let moveToScreen: (Int) -> Void
     let launchAtLogin: Binding<Bool>
 }
 
@@ -119,7 +164,11 @@ final class SettingsWindowController {
 
     func updateLanguage(_ strings: Strings) {
         window?.title = strings.windowTitle
-        for entry in labels { entry.item.label = entry.text(strings) }
+        for entry in labels {
+            entry.item.label = entry.text(strings)
+            // The window takes the selected tab's title, like Safari's settings.
+            entry.item.viewController?.title = entry.text(strings)
+        }
     }
 
     private func makeWindow(settings: HaloSettings, actions: SettingsActions) -> NSWindow {
@@ -133,6 +182,7 @@ final class SettingsWindowController {
             let item = NSTabViewItem(viewController: host)
             item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
             item.label = text(settings.strings)
+            host.title = item.label
             tabs.addTabViewItem(item)
             labels.append((item, text))
         }
@@ -140,13 +190,25 @@ final class SettingsWindowController {
         add("paintbrush", { $0.tabAppearance }, AppearanceTab(settings: settings))
         add("rectangle.stack", { $0.tabSessions }, SessionsTab(settings: settings, store: actions.store))
         add("sparkles", { $0.tabAnimations }, AnimationsTab(settings: settings))
-        add("app.badge", { $0.tabIcons }, IconsTab())
+        add("app.badge", { $0.tabIcons }, IconsTab(store: actions.store))
 
         let window = NSWindow(contentViewController: tabs)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.toolbarStyle = .preference
         window.isReleasedWhenClosed = false
         window.center()
+        // A closed window keeps its views, and their live preview would keep running:
+        // drop it all, it is rebuilt next time.
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window,
+                                               queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                DispatchQueue.main.async {
+                    self?.window?.contentViewController = nil
+                    self?.window = nil
+                    self?.labels = []
+                }
+            }
+        }
         return window
     }
 }
@@ -173,6 +235,15 @@ struct GeneralTab: View {
     let actions: SettingsActions
     @Environment(\.strings) private var s
     @State private var trusted = SplitOpener.isTrusted
+
+    private var placeChoice: String { actions.layout.floating ? "floating" : actions.layout.edge.rawValue }
+
+    /// Whether the bar's screen has a notch (the "top" choice then melts into it).
+    private var hasNotch: Bool {
+        let screens = NSScreen.screens
+        let screen = screens.indices.contains(actions.layout.screenIndex) ? screens[actions.layout.screenIndex] : NSScreen.main
+        return (screen?.safeAreaInsets.top ?? 0) > 0
+    }
 
     var body: some View {
         Form {
@@ -212,16 +283,43 @@ struct GeneralTab: View {
             }
 
             Section {
-                HStack {
-                    Button(s.resetPosition, action: actions.resetPosition)
-                    Spacer()
-                    Button(s.resetDefaults) { settings.resetToDefaults() }
+                Picker(s.barPlace, selection: Binding(get: { placeChoice }, set: { actions.place($0) })) {
+                    Text(s.placeBottom).tag("bottom")
+                    Text(s.placeTop(notch: hasNotch)).tag("top")
+                    Text(s.placeLeft).tag("left")
+                    Text(s.placeRight).tag("right")
+                    Text(s.placeFree).tag("floating")
+                }
+                if NSScreen.screens.count > 1 {
+                    Picker(s.screen, selection: Binding(get: { actions.layout.screenIndex },
+                                                        set: { actions.moveToScreen($0) })) {
+                        ForEach(Array(NSScreen.screens.enumerated()), id: \.offset) { index, screen in
+                            Text(screen.localizedName).tag(index)
+                        }
+                    }
                 }
             } header: {
                 Text(s.position)
             } footer: {
-                Text("Halo \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")")
-                    .foregroundStyle(.secondary)
+                Text(s.positionFooter).foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle(s.hideWhenCalm, isOn: $settings.hideWhenCalm)
+                Toggle(s.hideInFullScreen, isOn: $settings.hideInFullScreen)
+            } header: {
+                Text(s.autoHide)
+            } footer: {
+                Text(s.autoHideFooter(settings.hotKeyEnabled ? settings.hotKeyLabel : nil)).foregroundStyle(.secondary)
+            }
+
+            Section {
+                HStack {
+                    Text("Halo \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button(s.resetDefaults) { settings.resetToDefaults() }
+                }
             }
         }
         .task {
@@ -310,13 +408,19 @@ struct AppearanceTab: View {
                     }
                     .frame(width: 260)
                 }
-                LabeledContent(s.magnification) {
-                    HStack {
-                        Slider(value: $settings.magnification, in: 1...2)
-                        Text(settings.magnification < 1.02 ? s.off : String(format: "×%.1f", settings.magnification))
-                            .monospacedDigit().foregroundStyle(.secondary).frame(width: 48, alignment: .trailing)
+            }
+            Section {
+                Toggle(s.zoomOnHover, isOn: $settings.zoomEnabled)
+                if settings.zoomEnabled {
+                    LabeledContent(s.zoomStrength) {
+                        HStack {
+                            Slider(value: $settings.magnification, in: 1.1...2)
+                            Text(String(format: "×%.1f", settings.magnification))
+                                .monospacedDigit().foregroundStyle(.secondary).frame(width: 48, alignment: .trailing)
+                        }
+                        .frame(width: 260)
                     }
-                    .frame(width: 260)
+                    Toggle(s.zoomInNotch, isOn: $settings.zoomInNotch)
                 }
             }
             Section {
@@ -360,29 +464,38 @@ private struct BarPreview: View {
                     .padding(.bottom, 6)
             }
             .frame(width: geo.size.width, height: geo.size.height)
-            .task(id: "\(geo.size.width)") { await sweep(windowWidth: size.width) }
+            // One pass of the pointer when the tab opens and after each change, then it rests.
+            .task(id: "\(geo.size.width)|\(settings.iconSize)|\(settings.magnification)|\(settings.zoomEnabled)") {
+                await sweep(windowWidth: size.width)
+            }
         }
     }
 
     private func sweep(windowWidth: CGFloat) async {
         let start = Date()
-        while !Task.isCancelled {
+        let duration = 3.2
+        while !Task.isCancelled, Date().timeIntervalSince(start) < duration {
             let centers = layout.metrics.baseCenters(store.strip, mainLength: windowWidth)
             if let first = centers.first, let last = centers.last {
-                let phase = 0.5 - 0.5 * cos(Date().timeIntervalSince(start) * 0.8)
+                let phase = 0.5 - 0.5 * cos(Date().timeIntervalSince(start) / duration * 2 * .pi)
                 pointer.hover = first + (last - first) * phase
             }
             try? await Task.sleep(for: .milliseconds(33))
         }
+        pointer.hover = nil
     }
 }
 
 // MARK: - Sessions
 
-private struct SessionsTab: View {
+struct SessionsTab: View {
     @Bindable var settings: HaloSettings
     let store: SessionStore
     @Environment(\.strings) private var s
+
+    private var pinnedSessions: [Session] {
+        store.pinned.compactMap { id in store.sessions.first { $0.id == id } }
+    }
 
     var body: some View {
         Form {
@@ -397,6 +510,40 @@ private struct SessionsTab: View {
             } footer: {
                 Text(settings.showPaused ? s.pausedShown(store.sessions.filter { !$0.isLive }.count) : s.pausedOffFooter)
                     .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Picker(s.order, selection: $settings.sessionOrder) {
+                    ForEach(SessionOrder.allCases) { Text(s.orderName($0)).tag($0) }
+                }
+                if !pinnedSessions.isEmpty {
+                    LabeledContent(s.pinned) {
+                        Text(pinnedSessions.map(\.name).joined(separator: ", ")).lineLimit(2).foregroundStyle(.secondary)
+                    }
+                }
+            } footer: {
+                Text(s.orderFooter).foregroundStyle(.secondary)
+            }
+
+            Section {
+                if store.projects.isEmpty {
+                    Text(s.noProjects).foregroundStyle(.secondary)
+                }
+                ForEach(store.projects, id: \.self) { path in
+                    Toggle(isOn: Binding(
+                        get: { !settings.excludedProjects.contains(path) },
+                        set: { shown in
+                            if shown { settings.excludedProjects.removeAll { $0 == path } }
+                            else { settings.excludedProjects.append(path) }
+                        })) {
+                        Label(URL(fileURLWithPath: path).lastPathComponent, systemImage: "folder")
+                    }
+                    .help(path)
+                }
+            } header: {
+                Text(s.projects)
+            } footer: {
+                Text(s.projectsFooter).foregroundStyle(.secondary)
             }
 
             Section {
@@ -432,12 +579,21 @@ private struct SessionsTab: View {
 
 // MARK: - Animations and sounds
 
-private struct AnimationsTab: View {
+struct AnimationsTab: View {
     @Bindable var settings: HaloSettings
     @Environment(\.strings) private var s
+    @State private var notifier = Notifier.shared
 
     var body: some View {
         Form {
+            Section {
+                StyleGallery(selection: $settings.workingStyle)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
+            } header: {
+                Text(s.whileWorking)
+            } footer: {
+                Text(s.styleDescription(settings.workingStyle)).foregroundStyle(.secondary)
+            }
             Section {
                 Toggle(s.workingEffects, isOn: $settings.workingEffects)
                 Toggle(s.bounces, isOn: $settings.bounce)
@@ -449,7 +605,40 @@ private struct AnimationsTab: View {
                 sound(s.soundWaiting, isOn: $settings.soundWhenWaiting, name: "Glass")
                 sound(s.soundDone, isOn: $settings.soundWhenDone, name: "Pop")
             }
+            Section {
+                Toggle(s.notifyWaiting, isOn: notifying($settings.notifyWaiting))
+                Toggle(s.notifyDone, isOn: notifying($settings.notifyDone))
+                if notifier.allowed == false {
+                    LabeledContent(s.notificationsDenied) {
+                        Button(s.openSystemSettings) {
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                    }
+                    .foregroundStyle(.orange)
+                }
+            } header: {
+                Text(s.notifications)
+            } footer: {
+                Text(s.notificationsFooter).foregroundStyle(.secondary)
+            }
         }
+        .task {
+            // The choice is made in System Settings: follow it while this is open.
+            while !Task.isCancelled {
+                await notifier.refresh()
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+
+    /// Turning a notification on asks macOS for permission the first time.
+    private func notifying(_ binding: Binding<Bool>) -> Binding<Bool> {
+        Binding(get: { binding.wrappedValue }, set: { on in
+            binding.wrappedValue = on
+            if on, notifier.allowed == nil { Task { await notifier.requestPermission() } }
+        })
     }
 
     private func sound(_ title: String, isOn: Binding<Bool>, name: String) -> some View {
@@ -466,9 +655,46 @@ private struct AnimationsTab: View {
     }
 }
 
+/// The working animations side by side, each one live: click to choose.
+private struct StyleGallery: View {
+    @Binding var selection: WorkingStyle
+    @Environment(\.strings) private var s
+
+    private static let sample = Session(id: "style-preview", pid: 1, name: "Landing page redesign", cwd: "",
+                                        isDesktop: true, hostSessionId: nil, state: .working, stateSince: 0)
+
+    var body: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
+            ForEach(WorkingStyle.allCases) { style in
+                let selected = style == selection
+                VStack(spacing: 4) {
+                    IconView(session: Self.sample, size: 40, metrics: DockMetrics(item: 40), edge: .bottom,
+                             showName: false, showClose: false, close: {})
+                        .environment(\.dockEffects, DockEffects(style: style))
+                        .frame(width: 96, height: 72)
+                    Text(s.styleName(style))
+                        .font(.callout.weight(selected ? .semibold : .regular))
+                }
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(selected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.03)))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.1), lineWidth: selected ? 2 : 1))
+                .contentShape(Rectangle())
+                .onTapGesture { selection = style }
+                .accessibilityElement()
+                .accessibilityLabel(s.styleName(style))
+                .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+            }
+        }
+    }
+}
+
 // MARK: - Icons
 
-private struct IconsTab: View {
+struct IconsTab: View {
+    let store: SessionStore
     @State private var rules = IconRulesStore.shared
     @State private var sample = ""
     @State private var editing: UUID?
@@ -478,6 +704,48 @@ private struct IconsTab: View {
         Form {
             Section {
                 Text(s.iconsIntro).foregroundStyle(.secondary)
+                Picker(s.autoIcons, selection: $rules.autoStyle) {
+                    Text(s.autoSymbols).tag(AutoIconStyle.symbols)
+                    Text(s.autoInitials).tag(AutoIconStyle.initials)
+                    Text(s.autoSparkle).tag(AutoIconStyle.sparkle)
+                }
+            } footer: {
+                Text(s.autoFooter(SymbolCatalog.shared.names.count)).foregroundStyle(.secondary)
+            }
+
+            Section {
+                if store.sessions.isEmpty {
+                    Text(s.noSessions).foregroundStyle(.secondary)
+                }
+                ForEach(store.sessions) { session in
+                    let match = AppIcon.match(name: session.name, cwd: session.cwd)
+                    HStack(spacing: 10) {
+                        IconFace(icon: match.icon, size: 28, state: .rest)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(session.name).lineLimit(1)
+                            Text(source(match.source)).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if match.source != .yours {
+                            Button {
+                                rules.nextIcon(for: session.name)
+                            } label: {
+                                Label(s.another, systemImage: "dice")
+                            }
+                            Button(s.keep) {
+                                rules.add(keeping: match.icon, for: session.name)
+                                editing = rules.rules.first?.id
+                            }
+                        }
+                    }
+                }
+            } header: {
+                Text(s.yourSessions)
+            } footer: {
+                Text(s.yourSessionsFooter).foregroundStyle(.secondary)
+            }
+
+            Section {
                 let match = AppIcon.match(name: sample, cwd: "")
                 HStack(spacing: 12) {
                     IconFace(icon: match.icon, size: 36, state: .rest)
@@ -517,6 +785,8 @@ private struct IconsTab: View {
         switch source {
         case .yours: return s.sourceYours
         case .halo: return s.sourceHalo
+        case .generated: return s.sourceGenerated
+        case .initials: return s.sourceInitials
         case .fallback: return s.sourceFallback
         }
     }
@@ -530,6 +800,7 @@ private struct RuleRow: View {
     @Environment(\.strings) private var s
     @State private var keywords = ""
     @State private var symbol = ""
+    @State private var query = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -568,18 +839,35 @@ private struct RuleRow: View {
                         Text(s.unknownSymbol).foregroundStyle(.orange).font(.caption)
                     }
                 }
-                LazyVGrid(columns: Array(repeating: GridItem(.fixed(30), spacing: 6), count: 10), spacing: 6) {
-                    ForEach(SymbolChoices.all, id: \.self) { name in
-                        Button {
-                            symbol = name
-                        } label: {
-                            Image(systemName: name)
-                                .frame(width: 30, height: 26)
-                                .background(RoundedRectangle(cornerRadius: 6)
-                                    .fill(rule.symbol == name ? Color.accentColor.opacity(0.35) : Color.primary.opacity(0.06)))
-                        }
-                        .buttonStyle(.plain)
+                // Every SF Symbol of this Mac, searchable; a short list until you type.
+                let found = query.isEmpty ? SymbolChoices.all : SymbolCatalog.shared.search(query)
+                HStack {
+                    TextField(s.searchSymbols, text: $query, prompt: Text(s.searchPrompt))
+                    if !query.isEmpty {
+                        Text(s.symbolCount(found.count)).foregroundStyle(.secondary).font(.caption).fixedSize()
                     }
+                }
+                if found.isEmpty {
+                    Text(s.noSymbol).foregroundStyle(.secondary)
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: Array(repeating: GridItem(.fixed(30), spacing: 6), count: 10), spacing: 6) {
+                            ForEach(found, id: \.self) { name in
+                                Button {
+                                    symbol = name
+                                } label: {
+                                    Image(systemName: name)
+                                        .frame(width: 30, height: 26)
+                                        .background(RoundedRectangle(cornerRadius: 6)
+                                            .fill(rule.symbol == name ? Color.accentColor.opacity(0.35)
+                                                                      : Color.primary.opacity(0.06)))
+                                }
+                                .buttonStyle(.plain)
+                                .help(name)
+                            }
+                        }
+                    }
+                    .frame(height: found.count > 40 ? 170 : nil)
                 }
                 HStack(spacing: 18) {
                     ColorPicker(s.colorTop, selection: color(\.top))

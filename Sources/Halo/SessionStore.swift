@@ -14,6 +14,10 @@ final class SessionStore {
     /// Sessions you removed from the bar with ✕ (and that still exist), most recent first.
     private(set) var hidden: [HiddenSession] = []
     var hiddenCount: Int { hidden.count }
+    /// Pinned session ids, in the order they come first on the bar.
+    private(set) var pinned: [String] = []
+    /// Every project folder with a session, shown or not (Settings → Sessions).
+    private(set) var projects: [String] = []
 
     struct HiddenSession: Identifiable, Equatable {
         let id: String
@@ -27,8 +31,8 @@ final class SessionStore {
     }
 
     @ObservationIgnored var onChange: (() -> Void)?
-    /// A session changed state (old, new): for the sounds.
-    @ObservationIgnored var onStateChange: ((SessionState, SessionState) -> Void)?
+    /// A session changed state (the session now, its previous state): for sounds and notifications.
+    @ObservationIgnored var onStateChange: ((Session, SessionState) -> Void)?
     @ObservationIgnored private let settings: HaloSettings
 
     @ObservationIgnored private let registryDir: URL
@@ -56,6 +60,7 @@ final class SessionStore {
     private static let bootGraceMs: Double = 15_000
     /// Paused sessions shown: active in the last 7 days, 6 at most.
     private static let hiddenKey = "halo.hidden"
+    private static let pinnedKey = "halo.pinned"
 
     init(settings: HaloSettings) {
         self.settings = settings
@@ -75,6 +80,16 @@ final class SessionStore {
     /// Restores the sessions removed with ✕ in a previous run.
     func loadHidden() {
         hiddenAt = UserDefaults.standard.dictionary(forKey: Self.hiddenKey) as? [String: Double] ?? [:]
+        pinned = UserDefaults.standard.stringArray(forKey: Self.pinnedKey) ?? []
+    }
+
+    func isPinned(_ session: Session) -> Bool { pinned.contains(session.id) }
+
+    /// Right-click → pin: the session comes first, before the others (pins keep their order).
+    func togglePin(_ session: Session) {
+        if let index = pinned.firstIndex(of: session.id) { pinned.remove(at: index) } else { pinned.append(session.id) }
+        UserDefaults.standard.set(pinned, forKey: Self.pinnedKey)
+        refresh()
     }
 
     /// One pass over both sources, for `--dump`.
@@ -180,12 +195,20 @@ final class SessionStore {
                 transcriptId: entry.sessionId,
                 state: state, stateSince: state == .done ? (turnEnd[id] ?? since) : since)))
         }
-        live.sort { $0.started < $1.started }
+        switch settings.sessionOrder {
+        case .opened: live.sort { $0.started < $1.started }
+        case .recent: live.sort { $0.session.stateSince > $1.session.stateSince }
+        case .name: live.sort { $0.session.name.localizedStandardCompare($1.session.name) == .orderedAscending }
+        case .urgency: live.sort { ($0.session.state.urgency, $0.started) < ($1.session.state.urgency, $1.started) }
+        }
 
         let pausedWindowMs = Double(settings.pausedDays) * 86_400_000
-        let paused = !settings.showPaused ? [] : desktop.values
+        let recent = desktop.values
             .filter { !$0.archived && !runningIds.contains($0.id) && hiddenAt[$0.id] == nil
                 && now - $0.lastActivityAt < pausedWindowMs }
+        let excluded = Set(settings.excludedProjects)
+        let paused = !settings.showPaused ? [] : recent
+            .filter { !excluded.contains($0.cwd) }
             .sorted { $0.lastActivityAt > $1.lastActivityAt }
             .prefix(settings.pausedLimit)
             .map { record in
@@ -212,11 +235,23 @@ final class SessionStore {
         }
         if hiddenNow != hidden { hidden = hiddenNow }
 
-        let next = live.map(\.session) + paused
+        let folders = Set(live.map(\.session.cwd) + recent.map(\.cwd)).filter { !$0.isEmpty }
+            .sorted { URL(fileURLWithPath: $0).lastPathComponent.localizedStandardCompare(
+                URL(fileURLWithPath: $1).lastPathComponent) == .orderedAscending }
+        if folders != projects { projects = folders }
+
+        // Pinned first, in pin order; live before paused, so the divider stays between them.
+        let rank = Dictionary(pinned.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        func pinnedFirst(_ list: [Session]) -> [Session] {
+            list.enumerated()
+                .sorted { (rank[$0.element.id] ?? .max, $0.offset) < (rank[$1.element.id] ?? .max, $1.offset) }
+                .map(\.element)
+        }
+        let next = pinnedFirst(live.map(\.session).filter { !excluded.contains($0.cwd) }) + pinnedFirst(Array(paused))
         if let onStateChange {
             let before = Dictionary(sessions.map { ($0.id, $0.state) }, uniquingKeysWith: { first, _ in first })
             for session in next {
-                if let old = before[session.id], old != session.state { onStateChange(old, session.state) }
+                if let old = before[session.id], old != session.state { onStateChange(session, old) }
             }
         }
         if next != sessions {

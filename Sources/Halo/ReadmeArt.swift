@@ -52,6 +52,8 @@ enum ReadmeArt {
                       to: url("states-animated.png")) {
             StatesBoard(time: $0, flat: true)
         }
+        save(StylesBoard(), size: StylesBoard.size, scale: 1.5, to: url("working-styles.png"))
+        save(GeneratedIconsBoard(), size: GeneratedIconsBoard.size, scale: 1.5, to: url("generated-icons.png"))
         save(CardsBoard(), size: CardsBoard.size, scale: 1.5, to: url("cards.png"))
         save(PlacementsBoard(), size: PlacementsBoard.size, scale: 1.5, to: url("placements.png"))
         save(AnatomyBoard(), size: AnatomyBoard.size, scale: 1.5, to: url("anatomy.png"))
@@ -488,6 +490,75 @@ private struct StatesBoard: View {
             }
             .padding(.horizontal, 30)
             .padding(.top, 40)
+        }
+    }
+}
+
+// MARK: - Working styles and generated icons
+
+/// The six ways a working session can look (Settings → Animations), one frozen frame each.
+private struct StylesBoard: View {
+    static let size = CGSize(width: 1180, height: 330)
+
+    var body: some View {
+        let strings = Strings(lang: .en)
+        let session = Session(id: "styles", pid: 1, name: "Landing page redesign", cwd: "", isDesktop: true,
+                              hostSessionId: nil, state: .working, stateSince: 0)
+        ZStack {
+            Backdrop()
+            HStack(alignment: .top, spacing: 0) {
+                ForEach(WorkingStyle.allCases) { style in
+                    VStack(spacing: 14) {
+                        IconView(session: session, size: 72, metrics: DockMetrics(item: 72), edge: .bottom,
+                                 showName: false, showClose: false, close: {})
+                            .environment(\.dockEffects, DockEffects(style: style))
+                            .frame(height: 130)
+                        Text(strings.styleName(style))
+                            .font(.system(size: 20, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white)
+                        Text(strings.styleDescription(style))
+                            .font(.system(size: 13))
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.white.opacity(0.6))
+                            .frame(width: 160)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 36)
+        }
+    }
+}
+
+/// Session names and the icons Halo makes for them, from Apple's symbol catalog.
+private struct GeneratedIconsBoard: View {
+    static let size = CGSize(width: 1180, height: 300)
+    private static let names = ["Weather app", "Flight search to Paris", "Birthday cake shop", "Music player",
+                                "Inventory update", "Recettes de cuisine", "חיפוש דירה", "Ninja"]
+
+    var body: some View {
+        ZStack {
+            Backdrop()
+            HStack(alignment: .top, spacing: 0) {
+                ForEach(Self.names, id: \.self) { name in
+                    let match = AppIcon.match(name: name, cwd: "")
+                    VStack(spacing: 12) {
+                        IconFace(icon: match.icon, size: 72, state: .rest)
+                            .frame(height: 100)
+                        Text(name)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                        Text(match.icon.monogram.map { "initials “\($0)”" } ?? match.icon.symbol)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.55))
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 44)
         }
     }
 }

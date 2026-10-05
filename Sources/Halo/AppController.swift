@@ -80,13 +80,16 @@ final class AppController: NSObject, NSApplicationDelegate {
         placement = savedPlacement() ?? .docked(.bottom, NSPoint(x: NSScreen.main?.frame.midX ?? 0, y: 0))
         store.loadHidden()
         store.onChange = { [weak self] in self?.sessionsChanged() }
-        store.onStateChange = { [weak self] old, new in self?.playSound(from: old, to: new) }
+        store.onStateChange = { [weak self] session, old in self?.announce(session, from: old) }
+        Notifier.shared.onOpen = { [weak self] host in self?.open(host: host) }
+        Notifier.shared.setUp()
         // Size, magnification and the notch's icon count change the window: re-place it.
         settings.onChange = { [weak self] in
             guard let self else { return }
             applyPlacement(animated: false)
             settingsWindow.updateLanguage(settings.strings)
             registerHotKey()
+            updateAutoHide()
         }
         HotKey.shared.onPress = { [weak self] in self?.toggleBar() }
         registerHotKey()
@@ -99,6 +102,10 @@ final class AppController: NSObject, NSApplicationDelegate {
         statusTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.writeStatus() }
         }
+        // Full-screen apps, for the auto-hide: checked every second, only while that option is on.
+        fullScreenTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkFullScreen() }
+        }
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -109,6 +116,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     // MARK: - Sessions
 
     private func sessionsChanged() {
+        updateAutoHide()
         guard store.strip != strip else { return }
         strip = store.strip
         if !dragging { applyPlacement(animated: false) }
@@ -145,10 +153,20 @@ final class AppController: NSObject, NSApplicationDelegate {
         settings.iconSize = clamped
     }
 
+    /// A notification was clicked: open its session (the id comes from Halo's own notification).
+    private func open(host: String) {
+        guard host.wholeMatch(of: /local_[A-Za-z0-9-]{1,64}/) != nil,
+              let url = URL(string: "claude://code/continue?session=\(host)") else { return }
+        if let session = store.sessions.first(where: { $0.hostSessionId == host }) { store.acknowledge(session) }
+        NSWorkspace.shared.open(url)
+    }
+
     private func showSettings() {
         settingsWindow.show(settings: settings, actions: SettingsActions(
             store: store,
-            resetPosition: { [weak self] in self?.resetPosition() },
+            layout: layout,
+            place: { [weak self] choice in self?.place(choice) },
+            moveToScreen: { [weak self] index in self?.move(toScreen: index) },
             launchAtLogin: Binding(get: { Self.launchesAtLogin }, set: { Self.setLaunchAtLogin($0) })))
     }
 
@@ -191,6 +209,9 @@ final class AppController: NSObject, NSApplicationDelegate {
             "hotKeyHandler": Int(HotKey.shared.handlerStatus),
             "hotKeyPresses": HotKey.shared.presses,
             "barVisible": panel.isVisible,
+            "autoHidden": autoHidden,
+            "notifications": Notifier.shared.allowed.map { $0 ? "allowed" : "denied" } ?? "not asked",
+            "fullScreenApp": fullScreenOnBarScreen,
             "edge": edge.rawValue + (layout.notch != nil ? " (notch)" : ""),
             "language": settings.lang.rawValue,
             "settingsOpen": settingsWindow.isOpen,
@@ -220,27 +241,151 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     private func toggleBar() {
-        if panel.isVisible { panel.orderOut(nil) } else { panel.orderFrontRegardless() }
+        if autoHidden {
+            // Auto-hidden: the shortcut brings it back for a few seconds.
+            peekUntil = Date().addingTimeInterval(5)
+            updateAutoHide()
+        } else if panel.isVisible {
+            panel.orderOut(nil)
+        } else {
+            panel.orderFrontRegardless()
+        }
     }
 
-    /// Opening Halo again (Finder, Spotlight) brings a hidden bar back.
+    /// Opening Halo again (Finder, Spotlight) brings a hidden bar back, and its Settings.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         panel.orderFrontRegardless()
+        if autoHidden {
+            peekUntil = Date().addingTimeInterval(5)
+            updateAutoHide()
+        }
+        showSettings()
         return false
     }
 
-    private func resetPosition() {
-        placement = .docked(.bottom, NSPoint(x: NSScreen.main?.frame.midX ?? 0, y: 0))
+    /// Settings → Position: a screen edge (or free), on the screen the bar is on.
+    private func place(_ choice: String) {
+        let screen = Self.screen(containing: placementPoint) ?? NSScreen.main ?? NSScreen.screens[0]
+        placement = Self.placement(choice, on: screen)
         savePlacement()
         applyPlacement(animated: true)
     }
 
-    /// Optional sounds (Settings): when a session starts waiting for you, or finishes.
-    private func playSound(from old: SessionState, to new: SessionState) {
-        if new.isNeedsYou, !old.isNeedsYou, settings.soundWhenWaiting {
-            NSSound(named: "Glass")?.play()
-        } else if new == .done, old != .done, settings.soundWhenDone {
-            NSSound(named: "Pop")?.play()
+    private func move(toScreen index: Int) {
+        guard NSScreen.screens.indices.contains(index) else { return }
+        placement = Self.placement(layout.floating ? "floating" : layout.edge.rawValue, on: NSScreen.screens[index])
+        savePlacement()
+        applyPlacement(animated: true)
+    }
+
+    private static func placement(_ choice: String, on screen: NSScreen) -> Placement {
+        let visible = screen.visibleFrame
+        let center = NSPoint(x: visible.midX, y: visible.midY)
+        if choice == "floating" { return .floating(NSPoint(x: visible.midX, y: visible.minY + visible.height * 0.3)) }
+        return .docked(DockEdge(rawValue: choice) ?? .bottom, center)
+    }
+
+    private var placementPoint: NSPoint {
+        switch placement {
+        case .floating(let point), .docked(_, let point): return point
+        }
+    }
+
+    /// Sounds and notifications (Settings): when a session starts waiting for you, or finishes.
+    private func announce(_ session: Session, from old: SessionState) {
+        let new = session.state
+        if new.isNeedsYou, !old.isNeedsYou {
+            if settings.soundWhenWaiting { NSSound(named: "Glass")?.play() }
+            if settings.notifyWaiting { notify(session) }
+        } else if new == .done, old != .done {
+            if settings.soundWhenDone { NSSound(named: "Pop")?.play() }
+            if settings.notifyDone { notify(session) }
+        }
+        // Answered, or seen: its notification has done its job.
+        if (old.isNeedsYou && !new.isNeedsYou) || (old == .done && new != .done) {
+            Notifier.shared.withdraw(sessionId: session.id)
+        }
+    }
+
+    private func notify(_ session: Session) {
+        let strings = settings.strings
+        let withDetail = settings.showDetails
+        Task {
+            // What it asks, read from its history on this Mac, as on the hover card.
+            let detail = withDetail ? await SessionDetailStore.shared.detail(for: session, strings: strings) : nil
+            let body = ([detail?.title] + (detail?.lines.prefix(2).map { $0 } ?? []) + [detail?.code])
+                .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
+            Notifier.shared.post(sessionId: session.id, title: session.name, subtitle: strings.label(session.state),
+                                 body: body.isEmpty ? nil : body, host: session.hostSessionId)
+        }
+    }
+
+    // MARK: - Auto-hide
+
+    private var fullScreenTimer: Timer?
+    private var autoHidden = false
+    /// ⌃⌥H on an auto-hidden bar shows it until then.
+    private var peekUntil: Date?
+    private var fullScreenOnBarScreen = false
+    /// The pointer is on the bar (or where it would be), and when it last left it.
+    private var pointerOnBar = false
+    private var pointerLeftBarAt = Date.distantPast
+
+    private func updateAutoHide() {
+        let hide = shouldAutoHide()
+        guard hide != autoHidden else { return }
+        autoHidden = hide
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = hide ? 0.4 : 0.18
+            panel.animator().alphaValue = hide ? 0 : 1
+        }
+        if let peekUntil, !hide {
+            // Hide again once the peek is over.
+            DispatchQueue.main.asyncAfter(deadline: .now() + max(0.1, peekUntil.timeIntervalSinceNow + 0.05)) {
+                [weak self] in MainActor.assumeIsolated { self?.updateAutoHide() }
+            }
+        }
+    }
+
+    private func shouldAutoHide() -> Bool {
+        guard settings.hideWhenCalm || settings.hideInFullScreen else { return false }
+        // Something for you: always visible.
+        if store.sessions.contains(where: { $0.state.isNeedsYou || $0.state == .done }) { return false }
+        if dragging || press != nil || settingsWindow.isOpen { return false }
+        if let peekUntil, peekUntil > Date() { return false }
+        // The pointer is on it, or just left it.
+        if pointerOnBar || Date().timeIntervalSince(pointerLeftBarAt) < 0.8 { return false }
+        return settings.hideWhenCalm || (settings.hideInFullScreen && fullScreenOnBarScreen)
+    }
+
+    private func checkFullScreen() {
+        guard settings.hideInFullScreen || settings.hideWhenCalm else {
+            if autoHidden { updateAutoHide() }
+            return
+        }
+        if settings.hideInFullScreen {
+            let screen = Self.screen(containing: NSPoint(x: panel.frame.midX, y: panel.frame.midY)) ?? NSScreen.main
+            fullScreenOnBarScreen = screen.map(Self.hasFullScreenWindow) ?? false
+        }
+        updateAutoHide()
+    }
+
+    /// A window of another app covering the whole display, menu bar included: full screen.
+    private static func hasFullScreenWindow(on screen: NSScreen) -> Bool {
+        guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            return false
+        }
+        let display = CGDisplayBounds(CGDirectDisplayID(number.uint32Value))
+        let me = ProcessInfo.processInfo.processIdentifier
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] ?? []
+        return windows.contains { info in
+            guard (info[kCGWindowLayer as String] as? Int) == 0,
+                  (info[kCGWindowOwnerPID as String] as? Int32) != me,
+                  let bounds = info[kCGWindowBounds as String] as? NSDictionary,
+                  let rect = CGRect(dictionaryRepresentation: bounds) else { return false }
+            return abs(rect.minX - display.minX) < 1 && abs(rect.minY - display.minY) < 1
+                && abs(rect.width - display.width) < 1 && abs(rect.height - display.height) < 1
         }
     }
 
@@ -271,6 +416,11 @@ final class AppController: NSObject, NSApplicationDelegate {
             layout.edge = target.edge
             layout.notch = target.notch
         }
+        var floating = false
+        if case .floating = placement { floating = true }
+        if layout.floating != floating { layout.floating = floating }
+        let screen = NSScreen.screens.firstIndex { $0.frame.contains(placementPoint) } ?? 0
+        if layout.screenIndex != screen { layout.screenIndex = screen }
         panel.level = target.level
         if animated && !reshaped {
             NSAnimationContext.runAnimationGroup { context in
@@ -462,7 +612,30 @@ final class AppController: NSObject, NSApplicationDelegate {
             case .right: zone = CGRect(x: zone.minX - lift, y: zone.minY - 40, width: zone.width + lift, height: zone.height + 80)
             }
         }
-        let inside = zone.contains(point)
+        // Auto-hidden, the bar comes back when the pointer reaches its place, up to the screen edge.
+        var revealZone = zone
+        switch edge {
+        case .bottom: revealZone.size.height = frame.height - revealZone.minY
+        case .top: revealZone = CGRect(x: zone.minX, y: 0, width: zone.width, height: zone.maxY)
+        case .left: revealZone = CGRect(x: 0, y: zone.minY, width: zone.maxX, height: zone.height)
+        case .right: revealZone.size.width = frame.width - revealZone.minX
+        }
+        let near = revealZone.insetBy(dx: autoHidden ? -8 : 0, dy: autoHidden ? -8 : 0).contains(point)
+        if near != pointerOnBar {
+            pointerOnBar = near
+            if near {
+                updateAutoHide()
+            } else {
+                pointerLeftBarAt = Date()
+                // Left the bar: hide again once the short grace period is over.
+                if settings.hideWhenCalm || settings.hideInFullScreen {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.85) { [weak self] in
+                        MainActor.assumeIsolated { self?.updateAutoHide() }
+                    }
+                }
+            }
+        }
+        let inside = zone.contains(point) && !autoHidden
         var hover: CGFloat? = inside && !dragging ? (edge.isHorizontal ? point.x : point.y) : nil
         // Over the gear at the end of the bar: no magnification, no card.
         let gearStart = (edge.isHorizontal ? bar.maxX : bar.maxY) - metrics.padding - metrics.gearSlot + metrics.spacing / 2

@@ -1,10 +1,29 @@
 import AppKit
+import CoreImage
 import QuartzCore
 import SwiftUI
 
-// The effects that run for as long as a state lasts (aurora, alert pulse, shimmer) are
+// The effects that run for as long as a state lasts (working, alert pulse, shimmer) are
 // Core Animation layers: the system's render server animates them, like the real
 // Dock, so Halo itself does almost no work between state changes.
+
+/// How a session at work shows it (Settings → Animations).
+enum WorkingStyle: String, CaseIterable, Identifiable, Sendable {
+    /// A rainbow ring that spins, with a comet.
+    case aurora
+    /// A soft colored glow all around, no ring.
+    case glow
+    /// A comet circling the tile, nothing else.
+    case orbit
+    /// A stroke that draws itself around the tile, then fades.
+    case trace
+    /// Colored waves leaving the tile.
+    case sonar
+    /// Three dots in the corner, like someone typing.
+    case dots
+
+    var id: String { rawValue }
+}
 
 extension Palette {
     static func cgColor(_ hex: UInt32, alpha: CGFloat = 1) -> CGColor {
@@ -14,6 +33,7 @@ extension Palette {
 
     static let auroraHex: [UInt32] = [0xBC82F3, 0xF5B9EA, 0x8D9FFF, 0xAA6EEE, 0xFF6778, 0xFFBA71, 0xC686FF, 0xBC82F3]
     static let alertHex: UInt32 = 0xFF453A
+    static let violetHex: UInt32 = 0xAA6EEE
 }
 
 private func repeating(_ keyPath: String, from: Any, to: Any, duration: CFTimeInterval,
@@ -28,27 +48,40 @@ private func repeating(_ keyPath: String, from: Any, to: Any, duration: CFTimeIn
     return animation
 }
 
+/// The ring hugs the tile with this much room on each side. `DockMetrics.spacing` keeps
+/// two neighbours' rings apart.
+let ringOutset: CGFloat = 4
+
 private func ringPath(iconSize: CGFloat, in bounds: CGRect) -> CGPath {
-    let side = iconSize + 8
+    let side = iconSize + ringOutset * 2
     let rect = CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
-    return RoundedRectangle(cornerRadius: iconSize * 0.2237 + 4, style: .continuous).path(in: rect).cgPath
+    return RoundedRectangle(cornerRadius: iconSize * 0.2237 + ringOutset, style: .continuous).path(in: rect).cgPath
 }
 
-/// A ring around the tile, with a glow: rotating aurora colors, or a pulsing red alert.
+/// What surrounds a tile while its session works (one of `WorkingStyle`), or waits for you.
 final class RingEffectView: NSView {
-    enum Style { case aurora, alert }
+    enum Style: Equatable {
+        case working(WorkingStyle)
+        case alert
+    }
 
     var iconSize: CGFloat = DockMetrics.standardItem {
         didSet { if iconSize != oldValue { needsLayout = true } }
     }
 
+    /// Casts the colored glow: the shadow of everything inside it.
     private let glow = CALayer()
+    /// The ring: a gradient seen through a stroke-shaped mask.
     private let holder = CALayer()
     private let fill = CAGradientLayer()
     private let mask = CAShapeLayer()
-    private let ripple = CAShapeLayer()
-    /// A little comet with its tail, orbiting the tile while Claude works.
+    private var track: CAShapeLayer?
+    private var ripples: [CAShapeLayer] = []
+    private var rippleDuration: CFTimeInterval = 1.4
+    /// Sparks orbiting the tile, each a little behind the previous one: a comet and its tail.
     private var comet: [CALayer] = []
+    private var cometPeriod: CFTimeInterval = 1.8
+    private var cometLag: CFTimeInterval = 0.045
     private var orbitSize: CGFloat = 0
     /// Geometry last applied: SwiftUI lays the view out often, the layers rarely need it.
     private var laidOut: (bounds: CGRect, iconSize: CGFloat)?
@@ -56,76 +89,184 @@ final class RingEffectView: NSView {
     init(style: Style) {
         super.init(frame: .zero)
         wantsLayer = true
+        layerUsesCoreImageFilters = true
         let root = CALayer()
         layer = root
-
-        // The glow is the shadow of the ring, cast by its container.
         root.addSublayer(glow)
-        glow.addSublayer(holder)
-        holder.addSublayer(fill)
-        holder.mask = mask
+        glow.shadowOffset = .zero
+        glow.shadowOpacity = 1
         mask.fillColor = nil
         mask.strokeColor = NSColor.black.cgColor
         mask.lineWidth = 2.5
-        glow.shadowOffset = .zero
-        glow.shadowOpacity = 1
 
         switch style {
-        case .aurora:
-            fill.type = .conic
-            fill.colors = Palette.auroraHex.map { Palette.cgColor($0) }
-            fill.startPoint = CGPoint(x: 0.5, y: 0.5)
-            fill.endPoint = CGPoint(x: 0.5, y: 0)
-            fill.add(repeating("transform.rotation.z", from: 0, to: -2 * Double.pi, duration: 2.6), forKey: "spin")
-            let hue = CAKeyframeAnimation(keyPath: "shadowColor")
-            hue.values = Palette.auroraHex.map { Palette.cgColor($0) }
-            hue.duration = 4.5
-            hue.repeatCount = .infinity
-            glow.add(hue, forKey: "hue")
-            glow.add(repeating("shadowRadius", from: 5, to: 11, duration: 1.4, autoreverses: true), forKey: "breathe")
-            for (radius, opacity) in [(5.0, 1.0), (4.0, 0.6), (3.2, 0.4), (2.4, 0.22)] as [(CGFloat, Float)] {
-                let spark = CALayer()
-                spark.bounds = CGRect(x: 0, y: 0, width: radius, height: radius)
-                spark.cornerRadius = radius / 2
-                spark.backgroundColor = NSColor.white.cgColor
-                spark.opacity = opacity
-                spark.shadowColor = NSColor.white.cgColor
-                spark.shadowRadius = 4
-                spark.shadowOpacity = 0.9
-                spark.shadowOffset = .zero
-                spark.shadowPath = CGPath(ellipseIn: spark.bounds, transform: nil)
-                root.addSublayer(spark)
-                comet.append(spark)
-            }
-        case .alert:
-            let red = Palette.cgColor(Palette.alertHex)
-            fill.colors = [red, red]
-            glow.shadowColor = red
-            glow.shadowRadius = 8
-            glow.add(repeating("shadowOpacity", from: 1, to: 0.3, duration: 0.7, autoreverses: true), forKey: "pulse")
-            // A wave leaving the tile, every 1.4 s.
-            ripple.fillColor = nil
-            ripple.strokeColor = red
-            ripple.lineWidth = 2
-            ripple.opacity = 0
-            root.addSublayer(ripple)
-            let grow = CABasicAnimation(keyPath: "transform.scale")
-            grow.fromValue = 1
-            grow.toValue = 1.3
-            let fade = CABasicAnimation(keyPath: "opacity")
-            fade.fromValue = 0.8
-            fade.toValue = 0
-            let wave = CAAnimationGroup()
-            wave.animations = [grow, fade]
-            wave.duration = 1.4
-            wave.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            wave.repeatCount = .infinity
-            ripple.add(wave, forKey: "wave")
+        case .alert: setUpAlert(root)
+        case .working(.aurora): setUpAurora(root)
+        case .working(.glow): setUpGlow()
+        case .working(.orbit): setUpOrbit(root)
+        case .working(.trace): setUpTrace()
+        case .working(.sonar): setUpSonar(root)
+        case .working(.dots): break
         }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    // MARK: Styles
+
+    private func setUpAurora(_ root: CALayer) {
+        addRing()
+        spinAurora(seconds: 2.6)
+        glow.add(hueCycle(seconds: 4.5), forKey: "hue")
+        glow.add(repeating("shadowRadius", from: 3, to: 7, duration: 1.4, autoreverses: true), forKey: "breathe")
+        addComet(to: root, sparks: [(5, 1, 0xFFFFFF), (4, 0.6, 0xFFFFFF), (3.2, 0.4, 0xFFFFFF), (2.4, 0.22, 0xFFFFFF)])
+    }
+
+    /// Apple Intelligence's glow: the aurora ring, wide and blurred, turning slowly.
+    private func setUpGlow() {
+        addRing()
+        spinAurora(seconds: 5)
+        mask.lineWidth = 6
+        // Blur the whole ring (the container), not the masked layer, or the mask would cut the blur.
+        if let blur = CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: 4]) { glow.filters = [blur] }
+        glow.shadowOpacity = 0
+        holder.add(repeating("opacity", from: 0.55, to: 1, duration: 1.3, autoreverses: true), forKey: "breathe")
+    }
+
+    private func setUpOrbit(_ root: CALayer) {
+        let track = CAShapeLayer()
+        track.fillColor = nil
+        track.strokeColor = Palette.cgColor(Palette.violetHex, alpha: 0.35)
+        track.lineWidth = 1.5
+        root.addSublayer(track)
+        self.track = track
+        cometPeriod = 1.5
+        cometLag = 0.05
+        addComet(to: root, sparks: [(5.5, 1, 0xFFFFFF), (4.8, 0.9, 0xF5B9EA), (4.1, 0.75, 0xBC82F3),
+                                    (3.5, 0.6, 0xAA6EEE), (2.9, 0.45, 0x8D9FFF), (2.3, 0.3, 0x8D9FFF),
+                                    (1.8, 0.16, 0x8D9FFF)])
+    }
+
+    /// A stroke draws itself around the tile, then is wiped from its start: a lap, again and again.
+    private func setUpTrace() {
+        addRing()
+        spinAurora(seconds: 5)
+        mask.lineWidth = 3
+        mask.lineCap = .round
+        glow.shadowRadius = 5
+        glow.add(hueCycle(seconds: 4.5), forKey: "hue")
+        let draw = CABasicAnimation(keyPath: "strokeEnd")
+        draw.fromValue = 0
+        draw.toValue = 1
+        draw.duration = 1.1
+        draw.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        // Stays drawn while the wipe catches up.
+        draw.fillMode = .forwards
+        let wipe = CABasicAnimation(keyPath: "strokeStart")
+        wipe.fromValue = 0
+        wipe.toValue = 1
+        wipe.beginTime = 0.6
+        wipe.duration = 1.1
+        wipe.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        let lap = CAAnimationGroup()
+        lap.animations = [draw, wipe]
+        lap.duration = 1.9
+        lap.repeatCount = .infinity
+        mask.strokeEnd = 0
+        mask.add(lap, forKey: "lap")
+    }
+
+    private func setUpSonar(_ root: CALayer) {
+        addRing()
+        fill.colors = [Palette.cgColor(0xBC82F3), Palette.cgColor(0x8D9FFF)]
+        mask.lineWidth = 1.5
+        holder.opacity = 0.8
+        glow.shadowColor = Palette.cgColor(Palette.violetHex)
+        glow.shadowRadius = 4
+        addRipples(to: root, colors: [0xBC82F3, 0xFF6778, 0x8D9FFF], scale: 1.2, duration: 2.1)
+    }
+
+    private func setUpAlert(_ root: CALayer) {
+        addRing()
+        let red = Palette.cgColor(Palette.alertHex)
+        fill.colors = [red, red]
+        glow.shadowColor = red
+        glow.shadowRadius = 6
+        glow.add(repeating("shadowOpacity", from: 1, to: 0.3, duration: 0.7, autoreverses: true), forKey: "pulse")
+        // A wave leaving the tile, every 1.4 s.
+        addRipples(to: root, colors: [Palette.alertHex], scale: 1.2, duration: 1.4)
+    }
+
+    // MARK: Pieces
+
+    private func addRing() {
+        glow.addSublayer(holder)
+        holder.addSublayer(fill)
+        holder.mask = mask
+    }
+
+    private func spinAurora(seconds: CFTimeInterval) {
+        fill.type = .conic
+        fill.colors = Palette.auroraHex.map { Palette.cgColor($0) }
+        fill.startPoint = CGPoint(x: 0.5, y: 0.5)
+        fill.endPoint = CGPoint(x: 0.5, y: 0)
+        fill.add(repeating("transform.rotation.z", from: 0, to: -2 * Double.pi, duration: seconds), forKey: "spin")
+    }
+
+    private func hueCycle(seconds: CFTimeInterval) -> CAKeyframeAnimation {
+        let hue = CAKeyframeAnimation(keyPath: "shadowColor")
+        hue.values = Palette.auroraHex.map { Palette.cgColor($0) }
+        hue.duration = seconds
+        hue.repeatCount = .infinity
+        return hue
+    }
+
+    private func addComet(to root: CALayer, sparks: [(radius: CGFloat, opacity: Float, color: UInt32)]) {
+        for spark in sparks {
+            let layer = CALayer()
+            layer.bounds = CGRect(x: 0, y: 0, width: spark.radius, height: spark.radius)
+            layer.cornerRadius = spark.radius / 2
+            layer.backgroundColor = Palette.cgColor(spark.color)
+            layer.opacity = spark.opacity
+            layer.shadowColor = Palette.cgColor(spark.color == 0xFFFFFF ? 0xFFFFFF : spark.color)
+            layer.shadowRadius = 4
+            layer.shadowOpacity = 0.9
+            layer.shadowOffset = .zero
+            layer.shadowPath = CGPath(ellipseIn: layer.bounds, transform: nil)
+            root.addSublayer(layer)
+            comet.append(layer)
+        }
+    }
+
+    private func addRipples(to root: CALayer, colors: [UInt32], scale: CGFloat, duration: CFTimeInterval) {
+        rippleDuration = duration
+        for (index, hex) in colors.enumerated() {
+            let ripple = CAShapeLayer()
+            ripple.fillColor = nil
+            ripple.strokeColor = Palette.cgColor(hex)
+            ripple.lineWidth = 2
+            ripple.opacity = 0
+            root.addSublayer(ripple)
+            let grow = CABasicAnimation(keyPath: "transform.scale")
+            grow.fromValue = 1
+            grow.toValue = scale
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0.8
+            fade.toValue = 0
+            let wave = CAAnimationGroup()
+            wave.animations = [grow, fade]
+            wave.duration = duration
+            wave.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            wave.repeatCount = .infinity
+            // Spread evenly: one wave leaves while the previous is halfway out.
+            wave.timeOffset = duration * Double(index) / Double(colors.count)
+            ripple.add(wave, forKey: "wave")
+            ripples.append(ripple)
+        }
+    }
+
+    // MARK: Layout
 
     override func layout() {
         super.layout()
@@ -134,28 +275,27 @@ final class RingEffectView: NSView {
         laidOut = (bounds, iconSize)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for layer in [glow, holder, mask, ripple] as [CALayer] { layer.frame = bounds }
+        for layer in [glow, holder, mask] + ripples + [track].compactMap({ $0 }) as [CALayer] { layer.frame = bounds }
         // The conic fill spins: make it cover the corners at any angle.
         let diagonal = hypot(bounds.width, bounds.height)
         fill.bounds = CGRect(x: 0, y: 0, width: diagonal, height: diagonal)
         fill.position = CGPoint(x: bounds.midX, y: bounds.midY)
         let path = ringPath(iconSize: iconSize, in: bounds)
         mask.path = path
-        ripple.path = path
+        track?.path = path
+        for ripple in ripples { ripple.path = path }
         CATransaction.commit()
 
         // The orbit follows the ring, so it is rebuilt when the icon changes size.
         guard !comet.isEmpty, iconSize != orbitSize else { return }
         orbitSize = iconSize
-        let period: CFTimeInterval = 1.8
         for (index, spark) in comet.enumerated() {
             let orbit = CAKeyframeAnimation(keyPath: "position")
             orbit.path = path
             orbit.calculationMode = .paced
-            orbit.duration = period
+            orbit.duration = cometPeriod
             orbit.repeatCount = .infinity
-            // Each spark trails the previous one: the comet's tail.
-            orbit.timeOffset = period - Double(index) * 0.045
+            orbit.timeOffset = cometPeriod - Double(index) * cometLag
             spark.add(orbit, forKey: "orbit")
         }
     }
@@ -233,6 +373,72 @@ final class ShimmerView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
+/// The "someone is typing" bubble: three dots lighting up in turn, in the tile's corner.
+final class TypingDotsView: NSView {
+    var height: CGFloat = 14 {
+        didSet { if height != oldValue { needsLayout = true } }
+    }
+
+    private let bubble = CALayer()
+    private let row = CAReplicatorLayer()
+    private let dot = CALayer()
+
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        let root = CALayer()
+        layer = root
+        root.addSublayer(bubble)
+        bubble.backgroundColor = NSColor.white.cgColor
+        bubble.borderColor = NSColor.black.withAlphaComponent(0.08).cgColor
+        bubble.borderWidth = 0.5
+        bubble.shadowColor = NSColor.black.cgColor
+        bubble.shadowOpacity = 0.3
+        bubble.shadowRadius = 2
+        bubble.shadowOffset = .zero
+        bubble.addSublayer(row)
+        row.addSublayer(dot)
+        row.instanceCount = 3
+        row.instanceDelay = 0.16
+        dot.backgroundColor = Palette.cgColor(0x8E5CF7)
+
+        let light = CAKeyframeAnimation(keyPath: "opacity")
+        light.values = [0.3, 1, 0.3, 0.3]
+        let swell = CAKeyframeAnimation(keyPath: "transform.scale")
+        swell.values = [0.8, 1.2, 0.8, 0.8]
+        let beat = CAAnimationGroup()
+        beat.animations = [light, swell]
+        for animation in [light, swell] { animation.keyTimes = [0, 0.22, 0.44, 1] }
+        beat.duration = 1.1
+        beat.repeatCount = .infinity
+        dot.add(beat, forKey: "beat")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let width = height * 1.9
+        bubble.frame = CGRect(x: bounds.midX - width / 2, y: bounds.midY - height / 2, width: width, height: height)
+        bubble.cornerRadius = height / 2
+        bubble.shadowPath = CGPath(roundedRect: bubble.bounds, cornerWidth: height / 2, cornerHeight: height / 2,
+                                   transform: nil)
+        row.frame = bubble.bounds
+        let diameter = height * 0.28
+        let step = diameter * 1.6
+        row.instanceTransform = CATransform3DMakeTranslation(step, 0, 0)
+        dot.frame = CGRect(x: (width - 2 * step - diameter) / 2, y: (height - diameter) / 2,
+                           width: diameter, height: diameter)
+        dot.cornerRadius = diameter / 2
+        CATransaction.commit()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 // MARK: - SwiftUI wrappers
 
 struct RingEffect: NSViewRepresentable {
@@ -253,5 +459,15 @@ struct ShimmerEffect: NSViewRepresentable {
 
     func updateNSView(_ view: ShimmerView, context: Context) {
         view.iconSize = iconSize
+    }
+}
+
+struct TypingDots: NSViewRepresentable {
+    let height: CGFloat
+
+    func makeNSView(context: Context) -> TypingDotsView { TypingDotsView() }
+
+    func updateNSView(_ view: TypingDotsView, context: Context) {
+        view.height = height
     }
 }

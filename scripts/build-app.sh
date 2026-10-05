@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="0.3.0"
+VERSION="0.4.0"
 APP="build/Halo.app"
 
 swift build -c release
@@ -40,13 +40,16 @@ PLIST
 # pour que macOS garde l'autorisation Accessibilité d'une version à l'autre ; sinon ad hoc.
 # Le Bureau peut être synchronisé par iCloud, qui ajoute des attributs étendus (FinderInfo) :
 # une signature posée par-dessus est jugée invalide, et macOS refuse alors l'autorisation Accessibilité.
-xattr -cr "$APP"
+# iCloud peut en remettre entre le nettoyage et la signature : on réessaie.
 IDENTITY="Halo Developer"
-if security find-identity -p codesigning | grep -q "\"$IDENTITY\""; then
-  codesign --force --sign "$IDENTITY" "$APP"
-else
-  codesign --force --sign - "$APP"
-fi
+SIGN_AS="-"
+if security find-identity -p codesigning | grep -q "\"$IDENTITY\""; then SIGN_AS="$IDENTITY"; fi
+for attempt in 1 2 3; do
+  xattr -cr "$APP"
+  if codesign --force --sign "$SIGN_AS" "$APP"; then break; fi
+  [[ $attempt == 3 ]] && exit 1
+  sleep 1
+done
 echo "OK → $APP"
 
 if [[ "${1:-}" == "--install" ]]; then

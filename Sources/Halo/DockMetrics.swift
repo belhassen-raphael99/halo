@@ -74,7 +74,9 @@ struct DockMetrics: Equatable {
 
     /// 1 at the standard size.
     var unit: CGFloat { item / Self.standardItem }
-    var spacing: CGFloat { 10 * unit }
+    /// Room between icons, plus the two rings around working icons (`ringOutset`), so that
+    /// neighbours' rings never touch.
+    var spacing: CGFloat { 8 * unit + ringOutset * 2 }
     var padding: CGFloat { 10 * unit }
     var dividerThickness: CGFloat { 1 }
     /// Width of the magnification bump around the pointer.

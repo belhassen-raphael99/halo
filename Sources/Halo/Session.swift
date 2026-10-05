@@ -54,12 +54,14 @@ struct Session: Identifiable, Equatable {
     @MainActor var icon: AppIcon { AppIcon.for(name: name, cwd: cwd) }
 }
 
-/// An Apple-style app icon: a symbol on a gradient tile, picked from the session's
-/// name and folder.
+/// An Apple-style app icon: a symbol (or initials) on a gradient tile, picked from the
+/// session's name and folder.
 struct AppIcon: Equatable {
     let symbol: String
     let top: Color
     let bottom: Color
+    /// Letters drawn instead of the symbol: generated monogram icons.
+    var monogram: String? = nil
 
     private struct Rule {
         let keywords: [String]
@@ -102,7 +104,7 @@ struct AppIcon: Equatable {
              symbol: "folder.fill", top: 0x7EC8FF, bottom: 0x1E88E5),
         Rule(keywords: ["halo", "dock"],
              symbol: "circle.hexagongrid.fill", top: 0x9AA4FF, bottom: 0x5B5FE0),
-        Rule(keywords: ["agent", "ai", "ia", "mcp", "claude", "llm"],
+        Rule(keywords: ["agent", "ai", "ia", "mcp", "llm"],
              symbol: "sparkles", top: 0xF2A07B, bottom: 0xC2603A),
         Rule(keywords: ["idea", "ideas", "brainstorm", "project", "projet"],
              symbol: "lightbulb.fill", top: 0xFFD84D, bottom: 0xF59E0B),
@@ -113,17 +115,21 @@ struct AppIcon: Equatable {
         (0x5EE08A, 0x15A34A), (0xFF9EC0, 0xE2457A), (0xFFB340, 0xE8590C),
     ]
 
-    /// Where an icon comes from: your rule, Halo's, or the default.
+    /// Where an icon comes from: your rule, Halo's, or made for this session.
     enum Source: Equatable {
-        case yours, halo, fallback
+        case yours, halo, generated, initials, fallback
     }
 
     @MainActor
     static func `for`(name: String, cwd: String) -> AppIcon { match(name: name, cwd: cwd).icon }
 
+    /// Your rules first. Otherwise the session's icons, in order — Halo's rule if one fits,
+    /// then the symbols its words describe, then its initials — and "another icon" moves
+    /// along that list.
     @MainActor
     static func match(name: String, cwd: String) -> (icon: AppIcon, source: Source) {
-        let folder = URL(fileURLWithPath: cwd).lastPathComponent
+        let store = IconRulesStore.shared
+        let folder = cwd.isEmpty ? "" : URL(fileURLWithPath: cwd).lastPathComponent
         let text = "\(name) \(folder)"
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
         let words = Set(text.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init))
@@ -135,18 +141,36 @@ struct AppIcon: Equatable {
                 return !key.isEmpty && (key.count <= 3 ? words.contains(key) : text.contains(key))
             }
         }
-        for rule in IconRulesStore.shared.rules where matches(rule.keywords) {
+        for rule in store.rules where matches(rule.keywords) {
             if let top = CustomIconRule.hex(rule.top), let bottom = CustomIconRule.hex(rule.bottom) {
                 return (AppIcon(symbol: rule.symbol, top: Color(hex: top), bottom: Color(hex: bottom)), .yours)
             }
         }
-        for rule in rules where matches(rule.keywords) {
-            return (AppIcon(symbol: rule.symbol, top: Color(hex: rule.top), bottom: Color(hex: rule.bottom)), .halo)
+
+        var options: [(icon: AppIcon, source: Source)] = []
+        if let rule = rules.first(where: { matches($0.keywords) }) {
+            options.append((AppIcon(symbol: rule.symbol, top: Color(hex: rule.top), bottom: Color(hex: rule.bottom)), .halo))
         }
         var hash: UInt64 = 1469598103934665603
         for byte in name.utf8 { hash = (hash ^ UInt64(byte)) &* 1099511628211 }
         let pair = fallbacks[Int(hash % UInt64(fallbacks.count))]
-        return (AppIcon(symbol: "sparkle", top: Color(hex: pair.0), bottom: Color(hex: pair.1)), .fallback)
+        switch store.autoStyle {
+        case .symbols:
+            for symbol in store.generatedSymbols(for: "\(name) \(folder)") where symbol != options.first?.icon.symbol {
+                let colors = IconGenerator.colors(for: symbol, seed: name)
+                options.append((AppIcon(symbol: symbol, top: Color(hex: colors.top), bottom: Color(hex: colors.bottom)),
+                                .generated))
+            }
+            options.append((AppIcon(symbol: "", top: Color(hex: pair.0), bottom: Color(hex: pair.1),
+                                    monogram: IconGenerator.initials(name)), .initials))
+        case .initials:
+            options.append((AppIcon(symbol: "", top: Color(hex: pair.0), bottom: Color(hex: pair.1),
+                                    monogram: IconGenerator.initials(name)), .initials))
+        case .sparkle:
+            options.append((AppIcon(symbol: "sparkle", top: Color(hex: pair.0), bottom: Color(hex: pair.1)), .fallback))
+        }
+        let variant = store.variants[IconRulesStore.variantKey(name)] ?? 0
+        return options[variant % options.count]
     }
 }
 

@@ -5,9 +5,22 @@ import SwiftUI
 ///   Halo --dump             prints every session and its computed state
 ///   Halo --snapshot <dir>   renders the bar (bottom, right edge, notch) with sample sessions
 ///   Halo --readme <dir>     renders the README's artwork (see ReadmeArt.swift)
+///   Halo --icons "name"…    the icons Halo would make for these session names
 @MainActor
 enum Debug {
     static func run(_ arguments: [String]) -> Bool {
+        // Public images never use your own icon rules or picks.
+        if ["--readme", "--appicon", "--snapshot"].contains(where: arguments.contains) {
+            IconRulesStore.shared = IconRulesStore(persistent: false)
+        }
+        if let index = arguments.firstIndex(of: "--icons") {
+            for name in arguments[(index + 1)...] {
+                let match = AppIcon.match(name: name, cwd: "")
+                let options = IconGenerator.symbols(for: name, limit: 5)
+                print("\(name)\t→ \(match.icon.monogram ?? match.icon.symbol)  (\(match.source))\t\(options.joined(separator: " "))")
+            }
+            return true
+        }
         if let index = arguments.firstIndex(of: "--dump") {
             dump(language: index + 1 < arguments.count ? arguments[index + 1] : nil)
             return true
@@ -17,6 +30,10 @@ enum Debug {
             let file = FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent("Library/Application Support/Halo/status.json")
             print((try? String(contentsOf: file, encoding: .utf8)) ?? "no status: is Halo running?")
+            return true
+        }
+        if let index = arguments.firstIndex(of: "--settings-tabs"), index + 1 < arguments.count {
+            settingsTabs(into: URL(fileURLWithPath: arguments[index + 1], isDirectory: true))
             return true
         }
         if let index = arguments.firstIndex(of: "--readme"), index + 1 < arguments.count {
@@ -68,6 +85,42 @@ enum Debug {
         render(store, details, edge: .bottom, notch: nil, hoverIndex: 3, iconSize: 30,
                to: directory.appendingPathComponent("halo-small.png"))
         snapshotSettings(into: directory)
+    }
+
+    /// Each Settings tab, with this Mac's real settings, language and light or dark mode.
+    private static func settingsTabs(into directory: URL) {
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let settings = HaloSettings()
+        let store = SessionStore(settings: settings)
+        store.loadHidden()
+        _ = store.snapshot()
+        let actions = SettingsActions(store: store, layout: DockLayout(settings: settings), place: { _ in },
+                                      moveToScreen: { _ in }, launchAtLogin: .constant(false))
+        let tabs: [(String, AnyView)] = [
+            ("1-general", AnyView(GeneralTab(settings: settings, actions: actions))),
+            ("2-apparence", AnyView(AppearanceTab(settings: settings))),
+            ("3-sessions", AnyView(SessionsTab(settings: settings, store: store))),
+            ("4-animations", AnyView(AnimationsTab(settings: settings))),
+            ("5-icones", AnyView(IconsTab(store: store))),
+        ]
+        for (name, tab) in tabs {
+            let view = tab
+                .formStyle(.grouped)
+                .frame(width: 560, height: 560)
+                .environment(\.strings, settings.strings)
+                .environment(\.layoutDirection, settings.lang.layoutDirection)
+            let hosting = NSHostingView(rootView: view)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 560), styleMask: [.borderless],
+                                  backing: .buffered, defer: false)
+            window.appearance = NSApp.effectiveAppearance
+            window.backgroundColor = NSColor.windowBackgroundColor
+            window.contentView = hosting
+            hosting.layoutSubtreeIfNeeded()
+            guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { continue }
+            hosting.cacheDisplay(in: hosting.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: directory.appendingPathComponent("\(name).png"))
+            print("tab → \(name).png")
+        }
     }
 
     /// The Settings window in each language, and a hover card in Hebrew (right to left).

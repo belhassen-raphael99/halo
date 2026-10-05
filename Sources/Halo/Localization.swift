@@ -158,8 +158,6 @@ struct Strings: Sendable {
     var languageAutomatic: String { pick("Automatique (langue du Mac)", "Automatic (Mac language)", "אוטומטי (שפת המק)") }
     var appearance: String { pick("Apparence", "Appearance", "מראה") }
     var iconSize: String { pick("Taille des icônes", "Icon size", "גודל הסמלים") }
-    var magnification: String { pick("Grossissement au survol", "Magnification on hover", "הגדלה במעבר עכבר") }
-    var off: String { pick("désactivé", "off", "כבוי") }
     func notchIcons(_ count: Int) -> String {
         pick("Icônes visibles dans l'encoche : \(count)", "Icons shown in the notch: \(count)", "סמלים בחריץ: \(count)")
     }
@@ -184,8 +182,7 @@ struct Strings: Sendable {
     }
     var animations: String { pick("Animations", "Animations", "אנימציות") }
     var workingEffects: String {
-        pick("Lueur, comète et respiration pendant le travail", "Glow, comet and breathing while working",
-             "זוהר, שביט ונשימה בזמן עבודה")
+        pick("Animer les sessions au travail", "Animate sessions at work", "הנפשת סשנים בעבודה")
     }
     var bounces: String { pick("Rebonds quand une session t'attend", "Bounces when a session needs you", "קפיצות כשסשן מחכה לך") }
     var sparks: String { pick("Étincelles quand une session a fini", "Sparks when a session is done", "ניצוצות כשסשן מסתיים") }
@@ -202,7 +199,6 @@ struct Strings: Sendable {
     var allowed: String { pick("Autorisée", "Allowed", "מאושר") }
     var needsPermission: String { pick("À autoriser", "Needs permission", "דרוש אישור") }
     var openSystemSettings: String { pick("Ouvrir les réglages", "Open Settings", "פתיחת ההגדרות") }
-    var resetPosition: String { pick("Remettre la barre en bas de l'écran", "Put the bar back at the bottom", "החזרת הסרגל לתחתית המסך") }
     var resetDefaults: String { pick("Réglages par défaut", "Restore defaults", "שחזור ברירות מחדל") }
 
     // MARK: Settings tabs
@@ -219,9 +215,9 @@ struct Strings: Sendable {
     var shortcutRecording: String { pick("Tape le raccourci…", "Type the shortcut…", "הקלד את הקיצור…") }
     var shortcutClear: String { pick("Effacer", "Clear", "ניקוי") }
     var shortcutFooter: String {
-        pick("Fonctionne depuis n'importe quelle app. Barre masquée ? Ce raccourci, ou rouvrir Halo, la fait revenir.",
-             "Works from any app. Bar hidden? This shortcut, or opening Halo again, brings it back.",
-             "עובד מכל אפליקציה. הסרגל מוסתר? הקיצור הזה, או פתיחה מחדש של Halo, יחזירו אותו.")
+        pick("Fonctionne depuis n'importe quelle app. Barre masquée ? Ce raccourci, ou rouvrir Halo (qui ouvre aussi ces réglages), la fait revenir.",
+             "Works from any app. Bar hidden? This shortcut, or opening Halo again (which also opens these settings), brings it back.",
+             "עובד מכל אפליקציה. הסרגל מוסתר? הקיצור הזה, או פתיחה מחדש של Halo (שפותחת גם את ההגדרות האלה), יחזירו אותו.")
     }
     var sideBySideFooter: String {
         pick("Le ⌥-clic ouvre un panneau à droite dans Claude ; tu y choisis ensuite la session dans sa barre latérale.",
@@ -267,6 +263,34 @@ struct Strings: Sendable {
 
     // Animations
     var play: String { pick("Écouter", "Play", "השמעה") }
+    var whileWorking: String { pick("Pendant que Claude travaille", "While Claude works", "בזמן ש־Claude עובד") }
+    func styleName(_ style: WorkingStyle) -> String {
+        switch style {
+        case .aurora: return pick("Aurore", "Aurora", "זוהר")
+        case .glow: return pick("Halo", "Glow", "הילה")
+        case .orbit: return pick("Orbite", "Orbit", "מסלול")
+        case .trace: return pick("Tracé", "Trace", "קו")
+        case .sonar: return pick("Sonar", "Sonar", "סונאר")
+        case .dots: return pick("Points", "Dots", "נקודות")
+        }
+    }
+    func styleDescription(_ style: WorkingStyle) -> String {
+        switch style {
+        case .aurora: return pick("Un anneau arc-en-ciel qui tourne, avec une comète.",
+                                  "A spinning rainbow ring, with a comet.", "טבעת בצבעי הקשת שמסתובבת, עם שביט.")
+        case .glow: return pick("Une lueur colorée et douce tout autour de l'icône.",
+                                "A soft colored glow all around the icon.", "זוהר צבעוני ורך מסביב לסמל.")
+        case .orbit: return pick("Une comète fait le tour de l'icône, rien d'autre.",
+                                 "A comet circles the icon, nothing else.", "שביט מקיף את הסמל, ותו לא.")
+        case .trace: return pick("Un trait se dessine autour de l'icône, puis s'efface.",
+                                 "A stroke draws itself around the icon, then fades.", "קו מצטייר סביב הסמל ואז נמחק.")
+        case .sonar: return pick("Des ondes colorées partent de l'icône.",
+                                 "Colored waves leave the icon.", "גלים צבעוניים יוצאים מהסמל.")
+        case .dots: return pick("Trois points dans le coin, comme quand quelqu'un écrit un message.",
+                                "Three dots in the corner, like someone typing a message.",
+                                "שלוש נקודות בפינה, כמו כשמישהו מקליד הודעה.")
+        }
+    }
 
     // Icons
     var iconsIntro: String {
@@ -279,6 +303,101 @@ struct Strings: Sendable {
     var sourceYours: String { pick("ta règle", "your rule", "הכלל שלך") }
     var sourceHalo: String { pick("règle de Halo", "Halo's rule", "כלל של Halo") }
     var sourceFallback: String { pick("icône par défaut", "default icon", "סמל ברירת מחדל") }
+    var sourceGenerated: String { pick("créée d'après le nom", "made from the name", "נוצר לפי השם") }
+    var sourceInitials: String { pick("initiales", "initials", "ראשי תיבות") }
+    var autoIcons: String { pick("Sessions sans règle", "Sessions without a rule", "סשנים ללא כלל") }
+    var autoSymbols: String { pick("Symbole deviné d'après le nom", "Symbol guessed from the name", "סמל שנבחר לפי השם") }
+    var autoInitials: String { pick("Initiales", "Initials", "ראשי תיבות") }
+    var autoSparkle: String { pick("Étincelle, la même pour toutes", "Sparkle, the same for all", "ניצוץ, אותו לכולם") }
+    func autoFooter(_ count: Int) -> String {
+        pick("Halo cherche parmi les \(count) symboles d'Apple ceux que décrivent les mots du nom, en français, en anglais ou en hébreu. Tout se fait sur ce Mac : ni IA, ni réseau.",
+             "Halo looks through Apple's \(count) symbols for the ones the name's words describe, in English, French or Hebrew. It all happens on this Mac: no AI, no network.",
+             "Halo מחפש בין \(count) הסמלים של Apple את אלה שמתאימים למילים בשם, בעברית, באנגלית או בצרפתית. הכל קורה במק הזה: בלי בינה מלאכותית ובלי רשת.")
+    }
+    var yourSessions: String { pick("Tes sessions", "Your sessions", "הסשנים שלך") }
+    var yourSessionsFooter: String {
+        pick("« Une autre » passe à l'icône suivante. « Garder » en fait une règle, que tu peux ensuite retoucher.",
+             "“Another” moves to the next icon. “Keep” turns it into a rule you can then fine-tune.",
+             "„אחר” עובר לסמל הבא. „שמירה” הופכת אותו לכלל שאפשר לערוך אחר כך.")
+    }
+    var another: String { pick("Une autre", "Another", "אחר") }
+    var keep: String { pick("Garder", "Keep", "שמירה") }
+    var anotherIcon: String { pick("Une autre icône", "Another icon", "סמל אחר") }
+    var searchSymbols: String { pick("Chercher un symbole", "Search symbols", "חיפוש סמל") }
+    var searchPrompt: String { pick("ex. gâteau, voiture, music", "e.g. cake, car, music", "למשל: עוגה, רכב, music") }
+    func symbolCount(_ count: Int) -> String {
+        pick("\(count) symbole\(count > 1 ? "s" : "")", "\(count) symbol\(count == 1 ? "" : "s")", "\(count) סמלים")
+    }
+    var noSymbol: String { pick("Aucun symbole trouvé", "No symbol found", "לא נמצא סמל") }
+
+    // Zoom
+    var zoomOnHover: String { pick("Zoom au survol", "Zoom on hover", "הגדלה במעבר עכבר") }
+    var zoomStrength: String { pick("Intensité", "Strength", "עוצמה") }
+    var zoomInNotch: String { pick("Aussi dans l'encoche", "In the notch too", "גם בחריץ") }
+
+    // Position
+    var barPlace: String { pick("Emplacement", "Position", "מיקום") }
+    var placeBottom: String { pick("En bas", "Bottom", "למטה") }
+    func placeTop(notch: Bool) -> String {
+        notch ? pick("En haut, dans l'encoche", "Top, in the notch", "למעלה, בחריץ") : pick("En haut", "Top", "למעלה")
+    }
+    var placeLeft: String { pick("À gauche", "Left", "שמאל") }
+    var placeRight: String { pick("À droite", "Right", "ימין") }
+    var placeFree: String { pick("Libre", "Free-floating", "חופשי") }
+    var screen: String { pick("Écran", "Display", "מסך") }
+    var positionFooter: String {
+        pick("Tu peux aussi glisser la barre où tu veux : près d'un bord, elle s'y colle.",
+             "You can also drag the bar anywhere: near an edge, it snaps to it.",
+             "אפשר גם לגרור את הסרגל לכל מקום: ליד קצה המסך הוא נצמד אליו.")
+    }
+
+    // Auto-hide
+    var autoHide: String { pick("Masquer la barre automatiquement", "Hide the bar automatically", "הסתרה אוטומטית של הסרגל") }
+    var hideWhenCalm: String { pick("Quand aucune session ne t'attend", "When no session needs you", "כשאף סשן לא מחכה לך") }
+    var hideInFullScreen: String { pick("Quand une app est en plein écran", "When an app is full screen", "כשאפליקציה במסך מלא") }
+    func autoHideFooter(_ shortcut: String?) -> String {
+        let key = shortcut.map { pick(", ou avec \($0)", ", or with \($0)", ", או עם \($0)") } ?? ""
+        return pick("Elle revient dès qu'une session t'attend ou quand tu passes la souris à sa place\(key).",
+                    "It comes back as soon as a session needs you, or when you move the pointer to its place\(key).",
+                    "הוא חוזר ברגע שסשן מחכה לך, או כשמעבירים את העכבר למקום שלו\(key).")
+    }
+
+    // Notifications
+    var notifications: String { pick("Notifications", "Notifications", "התראות") }
+    var notifyWaiting: String { pick("Quand une session t'attend", "When a session needs you", "כשסשן מחכה לך") }
+    var notifyDone: String { pick("Quand une session a fini", "When a session is done", "כשסשן מסתיים") }
+    var notificationsDenied: String { pick("Refusées dans macOS", "Turned off in macOS", "כבויות ב־macOS") }
+    var notificationsFooter: String {
+        pick("Clique la notification pour ouvrir la session. Elle s'efface d'elle-même une fois que tu as répondu.",
+             "Click the notification to open the session. It clears itself once you've answered.",
+             "לחיצה על ההתראה פותחת את הסשן. היא נמחקת מעצמה אחרי שענית.")
+    }
+
+    // Order, projects, pins
+    var order: String { pick("Ordre des icônes", "Icon order", "סדר הסמלים") }
+    func orderName(_ order: SessionOrder) -> String {
+        switch order {
+        case .opened: return pick("Dans l'ordre d'ouverture", "In the order opened", "לפי סדר הפתיחה")
+        case .recent: return pick("Les plus récentes d'abord", "Most recent first", "האחרונים קודם")
+        case .name: return pick("Par nom", "By name", "לפי שם")
+        case .urgency: return pick("Celles qui t'attendent d'abord", "Those waiting for you first", "אלה שמחכים לך קודם")
+        }
+    }
+    var orderFooter: String {
+        pick("Les sessions épinglées passent toujours en premier : clic droit sur une icône pour en épingler une.",
+             "Pinned sessions always come first: right-click an icon to pin one.",
+             "סשנים מוצמדים תמיד ראשונים: לחיצה ימנית על סמל כדי להצמיד אותו.")
+    }
+    var projects: String { pick("Projets affichés", "Projects shown", "פרויקטים מוצגים") }
+    var projectsFooter: String {
+        pick("Décoche un projet pour garder ses sessions hors de la barre.",
+             "Uncheck a project to keep its sessions off the bar.",
+             "בטל סימון של פרויקט כדי להשאיר את הסשנים שלו מחוץ לסרגל.")
+    }
+    var noProjects: String { pick("Aucun projet pour l'instant.", "No project yet.", "אין עדיין פרויקטים.") }
+    var pinFirst: String { pick("Épingler en premier", "Pin first", "הצמדה בהתחלה") }
+    var unpin: String { pick("Désépingler", "Unpin", "ביטול הצמדה") }
+    var pinned: String { pick("Épinglées", "Pinned", "מוצמדים") }
     var yourRules: String { pick("Tes règles", "Your rules", "הכללים שלך") }
     var addRule: String { pick("Ajouter une règle", "Add a rule", "הוספת כלל") }
     var noRules: String { pick("Aucune règle pour l'instant.", "No rule yet.", "אין עדיין כללים.") }

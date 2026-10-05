@@ -24,6 +24,10 @@ final class DockLayout {
     var edge: DockEdge = .bottom
     /// Size of the screen's notch while the bar is docked into it.
     var notch: CGSize?
+    /// Dropped away from the edges (Settings shows "Free-floating").
+    var floating = false
+    /// Which of the Mac's screens it is on.
+    var screenIndex = 0
 
     init(settings: HaloSettings) {
         self.settings = settings
@@ -31,7 +35,7 @@ final class DockLayout {
 
     /// Icon size and magnification come from the settings (pinch, menu, Settings window).
     var metrics: DockMetrics {
-        DockMetrics(item: settings.iconSize, maxScale: settings.magnification)
+        DockMetrics(item: settings.iconSize, maxScale: settings.zoomEnabled ? settings.magnification : 1)
     }
 
     /// Extra room at the top of the window, taken by the notch.
@@ -78,6 +82,7 @@ private struct OffscreenKey: EnvironmentKey {
 struct DockEffects: Equatable {
     var motion = true
     var working = true
+    var style = WorkingStyle.aurora
     var bounce = true
     var celebration = true
     var details = true
@@ -143,8 +148,9 @@ struct DockView: View {
 
     var body: some View {
         let settings = layout.settings
-        let effects = DockEffects(motion: !reduceMotion, working: settings.workingEffects, bounce: settings.bounce,
-                                  celebration: settings.celebration, details: settings.showDetails)
+        let effects = DockEffects(motion: !reduceMotion, working: settings.workingEffects, style: settings.workingStyle,
+                                  bounce: settings.bounce, celebration: settings.celebration,
+                                  details: settings.showDetails)
         GeometryReader { geo in
             let edge = layout.edge
             let metrics = layout.metrics
@@ -227,7 +233,7 @@ struct DockView: View {
                 if let hovered, shown.indices.contains(hovered) {
                     SessionCard(session: shown[hovered], showDetails: layout.settings.showDetails)
                         .fixedSize()
-                        .offset(y: islandBottom + 10)
+                        .offset(y: islandBottom + 10 + (compactZoom - 1) * metrics.item)
                         .transition(.opacity)
                         .allowsHitTesting(false)
                 }
@@ -281,6 +287,12 @@ struct DockView: View {
         }
     }
 
+    /// How much the hovered icon grows in the notch: a hint, or the full zoom if asked for.
+    private var compactZoom: CGFloat {
+        let settings = layout.settings
+        return settings.zoomEnabled && settings.zoomInNotch ? CGFloat(min(settings.magnification, 1.6)) : 1.06
+    }
+
     /// A few icons in a window that scrolls as the pointer slides along it.
     private func compactRow(metrics: DockMetrics, sessions: [Session], hovered: Int?,
                             viewport: CGFloat, maxScroll: CGFloat) -> some View {
@@ -290,7 +302,7 @@ struct DockView: View {
                 EmptyIcon(edge: .top, metrics: metrics, showLabel: false)
             }
             ForEach(Array(sessions.enumerated()), id: \.element.id) { index, session in
-                icon(session, size: metrics.item * (hovered == index ? 1.06 : 1),
+                icon(session, size: metrics.item * (hovered == index ? compactZoom : 1),
                      metrics: metrics, edge: .top, hovered: hovered == index, showName: false)
             }
         }
@@ -311,6 +323,8 @@ struct DockView: View {
                 let s = layout.settings.strings
                 Button(s.open) { actions.open(session) }
                 Button(s.openBeside) { actions.openBeside(session) }
+                Button(store.isPinned(session) ? s.unpin : s.pinFirst) { store.togglePin(session) }
+                Button(s.anotherIcon) { IconRulesStore.shared.nextIcon(for: session.name) }
                 Divider()
                 Button(s.removeFromBar) { actions.close(session) }
             }
@@ -354,6 +368,7 @@ struct IconView: View {
     @Environment(\.dockEffects) private var effects
     @Environment(\.strings) private var strings
     @Environment(\.barForeground) private var barForeground
+    @Environment(\.offscreen) private var offscreen
 
     var body: some View {
         let dot = 7 * metrics.unit
@@ -410,6 +425,9 @@ struct IconView: View {
                 BadgeDot(symbol: "checkmark", color: Palette.done, diameter: diameter)
             case .paused:
                 BadgeDot(symbol: "moon.zzz.fill", color: Color(white: 0.42), diameter: diameter * 0.9)
+            case .working where effects.style == .dots:
+                TypingBubble(height: max(13, size * 0.3), animated: !offscreen && effects.working && effects.motion)
+                    .offset(x: -size * 0.08)
             case .working, .rest:
                 EmptyView()
             }
@@ -434,11 +452,21 @@ struct IconFace: View {
             shape.fill(LinearGradient(colors: [icon.top, icon.bottom], startPoint: .top, endPoint: .bottom))
             shape.fill(LinearGradient(colors: [.white.opacity(0.34), .white.opacity(0)],
                                       startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.55)))
-            Image(systemName: icon.symbol)
-                .symbolRenderingMode(.hierarchical)
-                .font(.system(size: size * 0.46, weight: .semibold))
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.22), radius: size * 0.025, y: size * 0.02)
+            Group {
+                if let monogram = icon.monogram {
+                    Text(monogram)
+                        .font(.system(size: size * (monogram.count > 1 ? 0.38 : 0.48), weight: .bold, design: .rounded))
+                        .minimumScaleFactor(0.5)
+                        .lineLimit(1)
+                        .padding(.horizontal, size * 0.08)
+                } else {
+                    Image(systemName: icon.symbol)
+                        .symbolRenderingMode(.hierarchical)
+                        .font(.system(size: size * 0.46, weight: .semibold))
+                }
+            }
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.22), radius: size * 0.025, y: size * 0.02)
             if state == .working && !offscreen && effects.working && effects.motion {
                 ShimmerEffect(iconSize: size).frame(width: size, height: size)
             }
@@ -511,9 +539,9 @@ struct BadgeDot: View {
 
 // MARK: - State effects
 
-/// What surrounds the tile: an aurora while Claude works, a red pulse while it waits
-/// for you, a green ring (drawn with a burst of sparks) once it is done.
-private struct StateEffect: View {
+/// What surrounds the tile: the working animation chosen in Settings, a red pulse while
+/// it waits for you, a green ring (drawn with a burst of sparks) once it is done.
+struct StateEffect: View {
     let state: SessionState
     let size: CGFloat
     let since: Double
@@ -526,10 +554,14 @@ private struct StateEffect: View {
     var body: some View {
         switch state {
         case .working:
-            if offscreen || !effects.working || !effects.motion {
-                StaticRing(size: size, style: AngularGradient(colors: Palette.aurora, center: .center))
+            if effects.style == .dots {
+                // The dots sit in the tile's corner: see IconView's badge.
+                EmptyView()
+            } else if offscreen || !effects.working || !effects.motion {
+                StaticWorking(style: effects.style, size: size)
             } else {
-                ring(.aurora)
+                // A new layer tree when the style changes.
+                ring(.working(effects.style)).id(effects.style)
             }
         case .needsYou:
             if offscreen || !effects.motion { StaticRing(size: size, style: Palette.alert) }
@@ -543,7 +575,70 @@ private struct StateEffect: View {
 
     private func ring(_ style: RingEffectView.Style) -> some View {
         RingEffect(style: style, iconSize: size)
-            .frame(width: size + 8 + Self.bleed * 2, height: size + 8 + Self.bleed * 2)
+            .frame(width: size + ringOutset * 2 + Self.bleed * 2, height: size + ringOutset * 2 + Self.bleed * 2)
+    }
+}
+
+/// Snapshot stand-ins for each working style: one frozen frame of it.
+private struct StaticWorking: View {
+    let style: WorkingStyle
+    let size: CGFloat
+
+    var body: some View {
+        let ring = tile(size, grow: ringOutset)
+        let aurora = AngularGradient(colors: Palette.aurora, center: .center)
+        let violet = Color(hex: Palette.violetHex)
+        Group {
+            switch style {
+            case .aurora, .dots:
+                StaticRing(size: size, style: aurora)
+            case .glow:
+                ring.stroke(aurora, lineWidth: 6).blur(radius: 4).opacity(0.85)
+            case .orbit:
+                ZStack {
+                    ring.stroke(violet.opacity(0.35), lineWidth: 1.5)
+                    Circle().fill(.white).frame(width: 5.5, height: 5.5)
+                        .shadow(color: .white, radius: 3)
+                        .offset(x: size * 0.36, y: -(size / 2 + ringOutset))
+                }
+            case .trace:
+                ZStack {
+                    ring.trim(from: 0.05, to: 0.55).stroke(aurora, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                        .blur(radius: 5).opacity(0.6)
+                    ring.trim(from: 0.05, to: 0.55).stroke(aurora, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                }
+            case .sonar:
+                ZStack {
+                    ring.stroke(violet.opacity(0.8), lineWidth: 1.5)
+                    ring.stroke(Color(hex: 0xFF6778).opacity(0.45), lineWidth: 2).scaleEffect(1.1)
+                    ring.stroke(Color(hex: 0x8D9FFF).opacity(0.2), lineWidth: 2).scaleEffect(1.18)
+                }
+            }
+        }
+        .frame(width: size + ringOutset * 2, height: size + ringOutset * 2)
+    }
+}
+
+/// The "typing" bubble of the dots style: live, or frozen for snapshots.
+private struct TypingBubble: View {
+    let height: CGFloat
+    let animated: Bool
+
+    var body: some View {
+        if animated {
+            TypingDots(height: height).frame(width: height * 1.9 + 8, height: height + 8)
+        } else {
+            let diameter = height * 0.28
+            Capsule()
+                .fill(.white)
+                .overlay(HStack(spacing: diameter * 0.6) {
+                    ForEach([0.4, 1, 0.6], id: \.self) { opacity in
+                        Circle().fill(Color(hex: 0x8E5CF7).opacity(opacity)).frame(width: diameter, height: diameter)
+                    }
+                })
+                .frame(width: height * 1.9, height: height)
+                .shadow(color: .black.opacity(0.3), radius: 2)
+        }
     }
 }
 
@@ -553,12 +648,12 @@ private struct StaticRing<Style: ShapeStyle>: View {
     let style: Style
 
     var body: some View {
-        let ring = tile(size, grow: 4)
+        let ring = tile(size, grow: ringOutset)
         ZStack {
             ring.stroke(style, lineWidth: 10).blur(radius: 9).opacity(0.6)
             ring.stroke(style, lineWidth: 2.5)
         }
-        .frame(width: size + 8, height: size + 8)
+        .frame(width: size + ringOutset * 2, height: size + ringOutset * 2)
     }
 }
 
