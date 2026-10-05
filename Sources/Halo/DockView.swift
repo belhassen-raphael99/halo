@@ -12,6 +12,8 @@ final class Pointer {
     var hoveredIndex: Int?
     /// How far the compact bar (in the notch) is scrolled.
     var scroll: CGFloat = 0
+    /// A short message shown above the bar for a few seconds.
+    var toast: String?
 }
 
 /// Where the bar lives. The controller decides; the view follows.
@@ -158,7 +160,11 @@ struct DockView: View {
         let viewport = metrics.rowLength(count: layout.shownStrip(strip).count)
         let maxScroll = compact ? max(0, metrics.rowLength(count: shown.count) - viewport) : 0
 
-        return Group {
+        let outer = edge.isHorizontal
+            ? AnyLayout(HStackLayout(alignment: edge == .top ? .top : .bottom, spacing: metrics.spacing))
+            : AnyLayout(VStackLayout(alignment: edge == .left ? .leading : .trailing, spacing: metrics.spacing))
+
+        return outer {
             if compact {
                 compactRow(metrics: metrics, sessions: shown, hovered: hovered,
                            viewport: viewport, maxScroll: maxScroll)
@@ -166,6 +172,9 @@ struct DockView: View {
                 fullRow(edge: edge, metrics: metrics, sessions: shown, strip: strip, centers: centers,
                         hover: hover, hovered: hovered)
             }
+            // The settings, one click away at the end of the bar.
+            GearButton(size: metrics.gearSize, action: actions.showSettings)
+                .padding(edge.swiftUIEdge, (metrics.item - metrics.gearSize) / 2)
         }
         .padding(edge.isHorizontal ? .horizontal : .vertical, metrics.padding)
         .frame(minWidth: edge == .top ? layout.notch.map { $0.width + 48 } : nil)
@@ -173,6 +182,24 @@ struct DockView: View {
         .background(alignment: edge.alignment) {
             barBackground(edge: edge, metrics: metrics)
         }
+        .overlay(alignment: edge.awayAlignment) {
+            if let toast = pointer.toast {
+                Text(toast)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 300)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(GlassBackground(cornerRadius: 10))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .modifier(BubblePlacement(edge: edge))
+                    .environment(\.layoutDirection, layout.settings.lang.layoutDirection)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                    .allowsHitTesting(false)
+            }
+        }
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: pointer.toast)
         .overlay(alignment: .top) {
             // Placed from the top: the row's height changes when an icon is hovered.
             if compact && maxScroll > 0 {
@@ -409,6 +436,25 @@ struct IconFace: View {
     }
 }
 
+private struct GearButton: View {
+    let size: CGFloat
+    let action: () -> Void
+    @Environment(\.strings) private var strings
+
+    var body: some View {
+        Image(systemName: "gearshape.fill")
+            .font(.system(size: size * 0.6, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.78))
+            .frame(width: size, height: size)
+            .background(Circle().fill(.white.opacity(0.1)))
+            .overlay(Circle().strokeBorder(.white.opacity(0.2), lineWidth: 0.5))
+            .contentShape(Circle())
+            .onTapGesture(perform: action)
+            .accessibilityLabel(strings.settingsItem)
+            .accessibilityAddTraits(.isButton)
+    }
+}
+
 private struct CloseButton: View {
     let diameter: CGFloat
     let action: () -> Void
@@ -622,7 +668,7 @@ private struct AttentionBounce: ViewModifier {
 // MARK: - Bubble, divider, empty state
 
 /// Puts the name bubble just beyond the icon, on the side facing away from the edge.
-private struct BubblePlacement: ViewModifier {
+struct BubblePlacement: ViewModifier {
     let edge: DockEdge
     private let gap: CGFloat = 14
 

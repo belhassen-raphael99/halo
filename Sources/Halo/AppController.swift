@@ -64,7 +64,11 @@ final class AppController: NSObject, NSApplicationDelegate {
             close: { [weak self] session in self?.store.hide(session) },
             unhideAll: { [weak self] in self?.store.unhideAll() },
             setIconSize: { [weak self] size in self?.setIconSize(size) },
-            showSettings: { [weak self] in self?.showSettings() },
+            showSettings: { [weak self] in
+                // The click that ends a drag must not open the settings.
+                guard let self, !dragging, Date().timeIntervalSince(lastDragEnd) > 0.3 else { return }
+                showSettings()
+            },
             showWaiting: { Self.openURL("claude://code/needs-input") },
             launchAtLogin: Binding(get: { Self.launchesAtLogin }, set: { Self.setLaunchAtLogin($0) }),
             quit: { NSApp.terminate(nil) }
@@ -115,7 +119,13 @@ final class AppController: NSObject, NSApplicationDelegate {
               let url = URL(string: "claude://code/continue?session=\(host)") else { return }
         if beside || NSEvent.modifierFlags.contains(.option) {
             if !SplitOpener.isTrusted { SplitOpener.requestTrust() }
-            Task { _ = await SplitOpener.open(url) }
+            Task {
+                if await SplitOpener.openPaneOnTheRight() {
+                    showToast(settings.strings.pickInSidebar(session.name))
+                } else {
+                    NSWorkspace.shared.open(url)
+                }
+            }
         } else {
             NSWorkspace.shared.open(url)
         }
@@ -148,6 +158,19 @@ final class AppController: NSObject, NSApplicationDelegate {
             NSSound(named: "Glass")?.play()
         } else if new == .done, old != .done, settings.soundWhenDone {
             NSSound(named: "Pop")?.play()
+        }
+    }
+
+    private var toastTask: Task<Void, Never>?
+
+    /// A message above the bar for a few seconds.
+    private func showToast(_ message: String) {
+        toastTask?.cancel()
+        pointer.toast = message
+        toastTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(6))
+            guard !Task.isCancelled else { return }
+            self?.pointer.toast = nil
         }
     }
 
@@ -357,7 +380,10 @@ final class AppController: NSObject, NSApplicationDelegate {
             }
         }
         let inside = zone.contains(point)
-        let hover: CGFloat? = inside && !dragging ? (edge.isHorizontal ? point.x : point.y) : nil
+        var hover: CGFloat? = inside && !dragging ? (edge.isHorizontal ? point.x : point.y) : nil
+        // Over the gear at the end of the bar: no magnification, no card.
+        let gearStart = (edge.isHorizontal ? bar.maxX : bar.maxY) - metrics.padding - metrics.gearSlot + metrics.spacing / 2
+        if let along = hover, along > gearStart { hover = nil }
         if hover != pointer.hover { pointer.hover = hover }
         let centers: [CGFloat]
         var scroll: CGFloat = 0

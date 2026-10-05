@@ -67,9 +67,10 @@ Hover any icon to see a small card: the **exact question** with its choices, the
 | Gesture | What happens |
 |---|---|
 | **Click** | Jumps to that session in the Claude app |
-| **⌥-click** | Opens it **side by side** with the session on screen (Split View). Do it again for a third. |
+| **⌥-click** | Opens a pane on the right of the Claude window (Split View) and tells you which session to pick in Claude's sidebar to show it there |
 | **✕** on hover | Takes the icon off the bar. It comes back by itself on the session's next turn. |
 | **Pinch** | Shrinks or grows the whole bar |
+| **⚙︎** at the end of the bar | Opens Settings |
 | **Right-click** | Menu: sessions waiting for you, size, removed sessions, Settings, Quit |
 
 The interface speaks English, French and Hebrew (right to left).
@@ -193,7 +194,7 @@ Halo reads three things Claude already keeps on disk, and never writes to them.
 | `~/.claude/projects/<folder>/<session id>.jsonl` | Last tool call or reply, for the hover card | On hover only, last 384 KB, cached |
 
 - **Done vs idle.** A session is *done* if Halo saw its turn end (busy or waiting, then idle) after you last looked at it. "Looked" means its `lastFocusedAt` in the Claude app, a click on the icon, or the app being in front with that session showing. Status changes during a process's first 15 s are its boot, so relaunching Claude doesn't turn everything green.
-- **Opening.** A click opens `claude://code/continue?session=local_…`. For ⌥-click, Halo uses the Accessibility API to press *Split View → New Session on the Right* in the Claude app's own menu, then opens the link in the new pane. The menu title is read from the app's translation files, so this works in any language.
+- **Opening.** A click opens `claude://code/continue?session=local_…`. For ⌥-click, Halo uses the Accessibility API to press *Split View → New Session on the Right* in the Claude app's own menu (its title is read from the app's translation files, so this works in any language). Claude's session link always lands in the main pane and the app offers no other way in, so Halo cannot put an existing session in the new pane by itself: a short note tells you which session to click in the sidebar.
 
 <details>
 <summary><b>Source map</b></summary>
@@ -244,7 +245,7 @@ All continuous effects now run as Core Animation layers, which the system's rend
   <img src="docs/readme/settings.png" alt="Settings window" width="70%">
 </p>
 
-Right-click the bar → *Settings…*. Every change applies live and is saved instantly.
+Click the **⚙︎** at the end of the bar (or right-click → *Settings…*). Every change applies live and is saved instantly.
 
 <details>
 <summary><b>All settings and their defaults</b></summary>

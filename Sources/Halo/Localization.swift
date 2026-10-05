@@ -143,6 +143,12 @@ struct Strings: Sendable {
     var open: String { pick("Ouvrir", "Open", "פתיחה") }
     var openBeside: String { pick("Ouvrir à côté (⌥-clic)", "Open side by side (⌥-click)", "פתיחה לצד (⌥-לחיצה)") }
     var removeFromBar: String { pick("Retirer de la barre", "Remove from the bar", "הסרה מהסרגל") }
+    /// After ⌥-click: the empty pane is open, the user picks the session in Claude's sidebar.
+    func pickInSidebar(_ name: String) -> String {
+        pick("Clique « \(name) » dans la barre latérale de Claude : elle s'ouvrira à droite.",
+             "Click “\(name)” in Claude's sidebar: it opens on the right.",
+             "לחץ על „\(name)” בסרגל הצד של Claude: הוא ייפתח מימין.")
+    }
     var noSessions: String { pick("Aucune session Claude ouverte", "No Claude session open", "אין סשן Claude פתוח") }
 
     // MARK: Settings window

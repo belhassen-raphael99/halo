@@ -98,9 +98,13 @@ struct DockMetrics: Equatable {
         return n * item + (n - 1) * spacing
     }
 
+    /// The settings gear at the end of the bar, and the room it takes there.
+    var gearSize: CGFloat { max(16, item * 0.46) }
+    var gearSlot: CGFloat { gearSize + spacing }
+
     func barLength(_ strip: Strip) -> CGFloat {
         let n = CGFloat(max(strip.count, 1))
-        var length = n * item + (n - 1) * spacing + padding * 2
+        var length = n * item + (n - 1) * spacing + padding * 2 + gearSlot
         if strip.dividerBefore != nil { length += dividerThickness + spacing }
         return length
     }

@@ -1,12 +1,13 @@
 import AppKit
 import ApplicationServices
 
-/// Opens a session next to the one already showing in the Claude app.
+/// Makes room for a second session next to the one showing in the Claude app.
 ///
-/// The app has no public link for that, so Halo does what you would do by hand: it picks
-/// "Split View → New Session on the Right" in the app's own menu, then opens the session's
-/// link, which lands in that new pane. Driving another app's menu needs the Accessibility
-/// permission (System Settings → Privacy & Security → Accessibility), granted by you.
+/// Halo picks "Split View → New Session on the Right" in the app's own menu, which opens an
+/// empty pane on the right. It cannot put an existing session there: Claude's session link
+/// always lands in the main (left) pane, and the app offers no other way in. So the user
+/// picks the session in Claude's sidebar, and Halo tells them which one. Driving another
+/// app's menu needs the Accessibility permission, granted by the user.
 @MainActor
 enum SplitOpener {
     private static let claudeBundleId = "com.anthropic.claudefordesktop"
@@ -20,25 +21,17 @@ enum SplitOpener {
         AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
     }
 
-    /// Returns false when the split could not be made (the link is then opened in place).
-    static func open(_ url: URL) async -> Bool {
+    /// Opens an empty pane on the right of the Claude window. False if that was not possible.
+    static func openPaneOnTheRight() async -> Bool {
         guard isTrusted,
               let app = NSRunningApplication.runningApplications(withBundleIdentifier: claudeBundleId).first else {
-            NSWorkspace.shared.open(url)
             return false
         }
         app.activate()
         try? await Task.sleep(for: .milliseconds(250))
         let element = AXUIElementCreateApplication(app.processIdentifier)
-        guard let menuBar = value(element, kAXMenuBarAttribute).flatMap(asElement),
-              press(in: menuBar, titles: newRightTitles, depth: 0) else {
-            NSWorkspace.shared.open(url)
-            return false
-        }
-        // Let the new pane appear and take focus before the link lands in it.
-        try? await Task.sleep(for: .milliseconds(450))
-        NSWorkspace.shared.open(url)
-        return true
+        guard let menuBar = value(element, kAXMenuBarAttribute).flatMap(asElement) else { return false }
+        return press(in: menuBar, titles: newRightTitles, depth: 0)
     }
 
     // MARK: - Menu
