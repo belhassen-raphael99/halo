@@ -148,6 +148,7 @@ struct DockView: View {
             .frame(width: geo.size.width, height: geo.size.height)
         }
         .environment(\.dockEffects, effects)
+        .environment(\.strings, settings.strings)
     }
 
     private func bar(edge: DockEdge, metrics: DockMetrics, sessions: [Session], strip: Strip,
@@ -198,22 +199,23 @@ struct DockView: View {
         .animation(.spring(response: 0.38, dampingFraction: 0.6), value: shown.map(\.state))
         .animation(.spring(response: 0.5, dampingFraction: 0.82), value: edge)
         .contextMenu {
-            Button("Ouvrir les sessions qui t'attendent", action: actions.showWaiting)
+            let s = layout.settings.strings
+            Button(s.openWaiting, action: actions.showWaiting)
             if store.hiddenCount > 0 {
-                Button("Réafficher les sessions retirées (\(store.hiddenCount))", action: actions.unhideAll)
+                Button(s.showRemoved(store.hiddenCount), action: actions.unhideAll)
             }
             Divider()
-            Menu("Taille de la barre") {
-                Button("Petite") { actions.setIconSize(32) }
-                Button("Moyenne") { actions.setIconSize(DockMetrics.standardItem) }
-                Button("Grande") { actions.setIconSize(62) }
+            Menu(s.barSize) {
+                Button(s.sizeSmall) { actions.setIconSize(32) }
+                Button(s.sizeMedium) { actions.setIconSize(DockMetrics.standardItem) }
+                Button(s.sizeLarge) { actions.setIconSize(62) }
                 Divider()
-                Text("Ou pince la barre sur le trackpad")
+                Text(s.pinchHint)
             }
-            Toggle("Ouvrir Halo au démarrage du Mac", isOn: actions.launchAtLogin)
-            Button("Réglages…", action: actions.showSettings)
+            Toggle(s.launchAtLogin, isOn: actions.launchAtLogin)
+            Button(s.settingsItem, action: actions.showSettings)
             Divider()
-            Button("Quitter Halo", action: actions.quit)
+            Button(s.quit, action: actions.quit)
         }
     }
 
@@ -265,10 +267,11 @@ struct DockView: View {
             .zIndex(hovered ? 1 : 0)
             .onTapGesture { actions.open(session) }
             .contextMenu {
-                Button("Ouvrir") { actions.open(session) }
-                Button("Ouvrir à côté (⌥-clic)") { actions.openBeside(session) }
+                let s = layout.settings.strings
+                Button(s.open) { actions.open(session) }
+                Button(s.openBeside) { actions.openBeside(session) }
                 Divider()
-                Button("Retirer de la barre") { actions.close(session) }
+                Button(s.removeFromBar) { actions.close(session) }
             }
             .transition(.scale(scale: 0.2).combined(with: .opacity))
     }
@@ -308,6 +311,7 @@ struct IconView: View {
     let showClose: Bool
     let close: () -> Void
     @Environment(\.dockEffects) private var effects
+    @Environment(\.strings) private var strings
 
     var body: some View {
         let dot = 7 * metrics.unit
@@ -349,7 +353,7 @@ struct IconView: View {
         }
         .contentShape(tile(size))
         .accessibilityElement()
-        .accessibilityLabel("\(session.name), \(session.state.label)")
+        .accessibilityLabel("\(session.name), \(strings.label(session.state))")
         .accessibilityAddTraits(.isButton)
     }
 
@@ -409,6 +413,8 @@ private struct CloseButton: View {
     let diameter: CGFloat
     let action: () -> Void
 
+    @Environment(\.strings) private var strings
+
     var body: some View {
         Circle()
             .fill(Color(white: 0.22))
@@ -420,7 +426,7 @@ private struct CloseButton: View {
             .shadow(color: .black.opacity(0.4), radius: 2, y: 1)
             .contentShape(Circle())
             .onTapGesture(perform: action)
-            .accessibilityLabel("Retirer de la barre")
+            .accessibilityLabel(strings.removeFromBar)
             .accessibilityAddTraits(.isButton)
     }
 }
@@ -689,6 +695,7 @@ private struct EmptyIcon: View {
     let edge: DockEdge
     let metrics: DockMetrics
     let showLabel: Bool
+    @Environment(\.strings) private var strings
 
     var body: some View {
         tile(metrics.item)
@@ -696,7 +703,7 @@ private struct EmptyIcon: View {
             .frame(width: metrics.item, height: metrics.item)
             .overlay(alignment: edge.awayAlignment) {
                 if showLabel {
-                    Text("Aucune session Claude ouverte")
+                    Text(strings.noSessions)
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 11)

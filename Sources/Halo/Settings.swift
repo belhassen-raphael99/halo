@@ -7,6 +7,8 @@ import SwiftUI
 @MainActor
 @Observable
 final class HaloSettings {
+    /// The interface language: French, English, Hebrew, or the Mac's own.
+    var language: LanguageChoice = .automatic { didSet { changed("language", language.rawValue) } }
     var iconSize: Double = DockMetrics.standardItem { didSet { changed("iconSize", iconSize) } }
     /// Dock-style magnification under the pointer; 1 turns it off.
     var magnification: Double = 1.55 { didSet { changed("magnification", magnification) } }
@@ -26,6 +28,9 @@ final class HaloSettings {
     var soundWhenWaiting = false { didSet { changed("soundWhenWaiting", soundWhenWaiting) } }
     var soundWhenDone = false { didSet { changed("soundWhenDone", soundWhenDone) } }
 
+    var lang: Lang { language.resolved }
+    var strings: Strings { Strings(lang: lang) }
+
     @ObservationIgnored var onChange: (() -> Void)?
     @ObservationIgnored private let persistent: Bool
 
@@ -39,6 +44,7 @@ final class HaloSettings {
         func load<T>(_ key: String, _ apply: (T) -> Void) {
             if let value = saved.object(forKey: Self.prefix + key) as? T { apply(value) }
         }
+        load("language") { (raw: String) in language = LanguageChoice(rawValue: raw) ?? .automatic }
         load("iconSize") { iconSize = $0 }
         load("magnification") { magnification = $0 }
         load("compactVisible") { compactVisible = $0 }
@@ -55,6 +61,7 @@ final class HaloSettings {
 
     func resetToDefaults() {
         let defaults = HaloSettings(persistent: false)
+        // The language stays: "defaults" is about how the bar looks and behaves.
         iconSize = defaults.iconSize
         magnification = defaults.magnification
         compactVisible = defaults.compactVisible
@@ -93,15 +100,20 @@ final class SettingsWindowController {
         if window == nil {
             let hosting = NSHostingController(rootView: SettingsView(settings: settings, actions: actions))
             let window = NSWindow(contentViewController: hosting)
-            window.title = "Réglages de Halo"
+            window.title = settings.strings.windowTitle
             window.styleMask = [.titled, .closable]
             window.isReleasedWhenClosed = false
             window.center()
             self.window = window
         }
+        updateTitle(settings.strings)
         // Halo has no Dock icon: bring it forward so the window comes to the front.
         NSApp.activate()
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    func updateTitle(_ strings: Strings) {
+        window?.title = strings.windowTitle
     }
 }
 
@@ -113,36 +125,46 @@ struct SettingsView: View {
     @State private var trusted = SplitOpener.isTrusted
 
     var body: some View {
+        let s = settings.strings
         Form {
-            Section("Apparence") {
-                LabeledContent("Taille des icônes") {
+            Section {
+                Picker(s.language, selection: $settings.language) {
+                    Text(s.languageAutomatic).tag(LanguageChoice.automatic)
+                    Divider()
+                    ForEach([LanguageChoice.fr, .en, .he]) { choice in
+                        Text(choice.resolved.nativeName).tag(choice)
+                    }
+                }
+            }
+
+            Section(s.appearance) {
+                LabeledContent(s.iconSize) {
                     Slider(value: $settings.iconSize, in: Double(DockMetrics.itemRange.lowerBound)...Double(DockMetrics.itemRange.upperBound))
                         .frame(width: 200)
                 }
-                LabeledContent("Grossissement au survol") {
+                LabeledContent(s.magnification) {
                     HStack {
                         Slider(value: $settings.magnification, in: 1...2).frame(width: 160)
-                        Text(settings.magnification < 1.02 ? "désactivé" : "×\(settings.magnification, specifier: "%.1f")")
+                        Text(settings.magnification < 1.02 ? s.off : String(format: "×%.1f", settings.magnification))
                             .monospacedDigit().foregroundStyle(.secondary).frame(width: 64, alignment: .leading)
                     }
                 }
-                Stepper("Icônes visibles dans l'encoche : \(settings.compactVisible)",
-                        value: $settings.compactVisible, in: 2...5)
+                Stepper(s.notchIcons(settings.compactVisible), value: $settings.compactVisible, in: 2...5)
             }
 
             Section {
-                Toggle("Afficher les sessions en pause", isOn: $settings.showPaused)
-                Picker("Actives depuis moins de", selection: $settings.pausedDays) {
-                    ForEach([1, 3, 7, 14, 30], id: \.self) { Text("\($0) jour\($0 > 1 ? "s" : "")").tag($0) }
+                Toggle(s.showPaused, isOn: $settings.showPaused)
+                Picker(s.activeWithin, selection: $settings.pausedDays) {
+                    ForEach([1, 3, 7, 14, 30], id: \.self) { Text(s.days($0)).tag($0) }
                 }
                 .disabled(!settings.showPaused)
-                Stepper("Au maximum : \(settings.pausedLimit)", value: $settings.pausedLimit, in: 1...12)
+                Stepper(s.atMost(settings.pausedLimit), value: $settings.pausedLimit, in: 1...12)
                     .disabled(!settings.showPaused)
-                Toggle("Carte de détail au survol", isOn: $settings.showDetails)
-                LabeledContent("Sessions retirées de la barre") {
+                Toggle(s.detailCard, isOn: $settings.showDetails)
+                LabeledContent(s.removedSessions) {
                     HStack {
                         Text("\(hiddenCount)").monospacedDigit().foregroundStyle(.secondary)
-                        Button("Réafficher") {
+                        Button(s.showAgain) {
                             actions.unhideAll()
                             hiddenCount = actions.hiddenCount()
                         }
@@ -150,37 +172,35 @@ struct SettingsView: View {
                     }
                 }
             } header: {
-                Text("Sessions")
+                Text(s.sessions)
             } footer: {
-                Text("La carte de détail lit l'historique de la session sur ce Mac. Rien n'est envoyé ailleurs.")
-                    .foregroundStyle(.secondary)
+                Text(s.detailFooter).foregroundStyle(.secondary)
             }
 
             Section {
-                Toggle("Lueur, comète et respiration pendant le travail", isOn: $settings.workingEffects)
-                Toggle("Rebonds quand une session t'attend", isOn: $settings.bounce)
-                Toggle("Étincelles quand une session a fini", isOn: $settings.celebration)
+                Toggle(s.workingEffects, isOn: $settings.workingEffects)
+                Toggle(s.bounces, isOn: $settings.bounce)
+                Toggle(s.sparks, isOn: $settings.celebration)
             } header: {
-                Text("Animations")
+                Text(s.animations)
             } footer: {
-                Text("Si « Réduire les animations » est activé dans macOS, Halo les coupe aussi.")
-                    .foregroundStyle(.secondary)
+                Text(s.motionFooter).foregroundStyle(.secondary)
             }
 
-            Section("Sons") {
-                Toggle("Son quand une session t'attend", isOn: $settings.soundWhenWaiting)
-                Toggle("Son quand une session a fini", isOn: $settings.soundWhenDone)
+            Section(s.sounds) {
+                Toggle(s.soundWaiting, isOn: $settings.soundWhenWaiting)
+                Toggle(s.soundDone, isOn: $settings.soundWhenDone)
             }
 
             Section {
-                Toggle("Ouvrir Halo au démarrage du Mac", isOn: actions.launchAtLogin)
-                LabeledContent("Ouverture côte à côte (⌥-clic)") {
+                Toggle(s.launchAtLogin, isOn: actions.launchAtLogin)
+                LabeledContent(s.sideBySide) {
                     HStack {
-                        Label(trusted ? "Autorisée" : "À autoriser",
+                        Label(trusted ? s.allowed : s.needsPermission,
                               systemImage: trusted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                             .foregroundStyle(trusted ? .green : .orange)
                         if !trusted {
-                            Button("Ouvrir les réglages") {
+                            Button(s.openSystemSettings) {
                                 SplitOpener.requestTrust()
                                 if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
                                     NSWorkspace.shared.open(url)
@@ -190,17 +210,19 @@ struct SettingsView: View {
                     }
                 }
                 HStack {
-                    Button("Remettre la barre en bas de l'écran", action: actions.resetPosition)
+                    Button(s.resetPosition, action: actions.resetPosition)
                     Spacer()
-                    Button("Réglages par défaut") { settings.resetToDefaults() }
+                    Button(s.resetDefaults) { settings.resetToDefaults() }
                 }
             } header: {
-                Text("Système")
+                Text(s.system)
             } footer: {
                 Text("Halo \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")")
                     .foregroundStyle(.secondary)
             }
         }
+        .environment(\.layoutDirection, settings.lang.layoutDirection)
+        .environment(\.locale, Locale(identifier: settings.lang.rawValue))
         .formStyle(.grouped)
         .frame(width: 480)
         .fixedSize(horizontal: false, vertical: true)

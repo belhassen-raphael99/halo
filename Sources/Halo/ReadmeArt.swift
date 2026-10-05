@@ -25,17 +25,19 @@ enum Samples {
         ]
     }
 
-    static let details: [String: SessionDetail] = [
-        "API migration": SessionDetail(title: "Autorisation demandée", lines: ["Lancer la migration de la base"],
-                                       code: "npm run db:migrate"),
-        "Landing page redesign": SessionDetail(title: "En ce moment", lines: ["Modifier un fichier"],
-                                               code: "Hero.tsx"),
-        "Unit tests": SessionDetail(title: "Dernière réponse",
-                                    lines: ["Les 128 tests passent.", "2 snapshots ont été mis à jour."]),
-        "Mobile app": SessionDetail(
-            title: "Question pour toi", lines: ["Quelle base de données pour les comptes ?"],
-            options: ["PostgreSQL (Recommandé)", "SQLite", "Firebase"]),
-    ]
+    /// What the sample cards say: the interface in `strings`' language, the content in English.
+    static func details(_ s: Strings = Strings(lang: .en)) -> [String: SessionDetail] {
+        [
+            "API migration": SessionDetail(title: s.permissionRequested, lines: ["Run the database migration"],
+                                           code: "npm run db:migrate"),
+            "Landing page redesign": SessionDetail(title: s.rightNow, lines: [s.editFile], code: "Hero.tsx"),
+            "Unit tests": SessionDetail(title: s.lastReply,
+                                        lines: ["All 128 tests pass.", "2 snapshots were updated."]),
+            "Mobile app": SessionDetail(
+                title: s.questionForYou, lines: ["Which database for the user accounts?"],
+                options: ["PostgreSQL (Recommended)", "SQLite", "Firebase"]),
+        ]
+    }
 }
 
 @MainActor
@@ -84,10 +86,12 @@ enum ReadmeArt {
     }
 
     /// The Settings window, drawn by AppKit itself (its controls are AppKit views).
-    static func settingsImage() -> NSImage? {
+    static func settingsImage(language: LanguageChoice = .en) -> NSImage? {
         let actions = SettingsActions(hiddenCount: { 2 }, unhideAll: {}, resetPosition: {},
                                       launchAtLogin: .constant(true))
-        let hosting = NSHostingView(rootView: SettingsView(settings: HaloSettings(persistent: false), actions: actions))
+        let settings = HaloSettings(persistent: false)
+        settings.language = language
+        let hosting = NSHostingView(rootView: SettingsView(settings: settings, actions: actions))
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: hosting.fittingSize), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: .darkAqua)
@@ -145,7 +149,8 @@ enum ReadmeArt {
         view
             .frame(width: size.width, height: size.height)
             .environment(\.offscreen, true)
-            .environment(\.previewDetails, Samples.details)
+            .environment(\.previewDetails, Samples.details())
+            .environment(\.strings, Strings(lang: .en))
             .environment(\.colorScheme, .dark)
     }
 }
@@ -246,6 +251,7 @@ private struct BarSnapshot: View {
 
     var body: some View {
         let settings = HaloSettings(persistent: false)
+        settings.language = .en
         let layout = DockLayout(settings: settings)
         layout.edge = edge
         layout.notch = notch
@@ -833,7 +839,7 @@ private struct SettingsBoard: View {
                         }
                         Spacer()
                     }
-                    Text("Réglages de Halo").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white.opacity(0.85))
+                    Text("Halo Settings").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white.opacity(0.85))
                 }
                 .padding(.horizontal, 14)
                 .frame(height: 34)

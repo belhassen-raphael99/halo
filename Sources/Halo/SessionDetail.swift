@@ -16,10 +16,10 @@ struct SessionDetail: Equatable, Sendable {
 enum SessionDetailReader {
     /// Reads the transcript's tail and describes its last step for the given state.
     /// Runs off the main thread: transcripts can weigh tens of megabytes.
-    static func read(transcript: URL, state: SessionState) -> SessionDetail? {
+    static func read(transcript: URL, state: SessionState, strings: Strings) -> SessionDetail? {
         for budget in [384 * 1_024, 2 * 1_024 * 1_024] {
             if let last = lastStep(in: transcript, tailBytes: budget) {
-                return describe(last, state: state)
+                return describe(last, state: state, s: strings)
             }
         }
         return nil
@@ -68,57 +68,58 @@ enum SessionDetailReader {
 
     // MARK: - Wording
 
-    private static func describe(_ step: Step, state: SessionState) -> SessionDetail {
+    private static func describe(_ step: Step, state: SessionState, s: Strings) -> SessionDetail {
         switch (state, step) {
         case (.needsYou, .tool("AskUserQuestion", let input)):
             let question = (input["questions"] as? [[String: Any]])?.first
             let options = (question?["options"] as? [[String: Any]] ?? []).compactMap { $0["label"] as? String }
-            return SessionDetail(title: "Question pour toi",
+            return SessionDetail(title: s.questionForYou,
                                  lines: preview(question?["question"] as? String ?? "", maxLines: 3),
                                  options: Array(options.prefix(4)))
         case (.needsYou, .tool("ExitPlanMode", _)):
-            return SessionDetail(title: "Plan à valider", lines: ["Claude propose un plan et attend ton accord."])
+            return SessionDetail(title: s.planToApprove, lines: [s.planWaiting])
         case (.needsYou, .tool(let name, let input)):
-            let action = toolAction(name: name, input: input)
-            return SessionDetail(title: "Autorisation demandée", lines: [action.verb], code: action.subject)
+            let action = toolAction(name: name, input: input, s: s)
+            return SessionDetail(title: s.permissionRequested, lines: [action.verb], code: action.subject)
         case (.needsYou, .text(let text)):
-            return SessionDetail(title: "Attend ta réponse", lines: preview(text, maxLines: 4))
+            return SessionDetail(title: s.waitingReply, lines: preview(text, maxLines: 4))
         case (.working, .tool(let name, let input)):
-            let action = toolAction(name: name, input: input)
-            return SessionDetail(title: "En ce moment", lines: [action.verb], code: action.subject)
+            let action = toolAction(name: name, input: input, s: s)
+            return SessionDetail(title: s.rightNow, lines: [action.verb], code: action.subject)
         case (.working, .text(let text)):
-            return SessionDetail(title: "Rédige sa réponse", lines: preview(text, maxLines: 3))
+            return SessionDetail(title: s.writingReply, lines: preview(text, maxLines: 3))
         case (_, .text(let text)):
-            return SessionDetail(title: "Dernière réponse", lines: preview(text, maxLines: 4))
+            return SessionDetail(title: s.lastReply, lines: preview(text, maxLines: 4))
         case (_, .tool(let name, let input)):
-            let action = toolAction(name: name, input: input)
-            return SessionDetail(title: "Dernière action", lines: [action.verb], code: action.subject)
+            let action = toolAction(name: name, input: input, s: s)
+            return SessionDetail(title: s.lastAction, lines: [action.verb], code: action.subject)
         }
     }
 
-    /// "Lancer" + "npm run build", "Modifier" + "page.tsx"…
-    private static func toolAction(name: String, input: [String: Any]) -> (verb: String, subject: String?) {
+    /// "Run a command" + "npm run build", "Edit a file" + "page.tsx"…
+    private static func toolAction(name: String, input: [String: Any], s: Strings) -> (verb: String, subject: String?) {
         func file(_ key: String = "file_path") -> String? {
             (input[key] as? String).map { URL(fileURLWithPath: $0).lastPathComponent }
         }
         switch name {
         case "Bash":
+            // Claude's own description of the command, in whatever language it wrote it.
             let command = (input["command"] as? String)?.split(separator: "\n").first.map(String.init)
-            return (input["description"] as? String ?? "Lancer une commande", command)
-        case "Read": return ("Lire un fichier", file())
-        case "Edit", "MultiEdit": return ("Modifier un fichier", file())
-        case "Write": return ("Écrire un fichier", file())
-        case "NotebookEdit": return ("Modifier un notebook", file("notebook_path"))
-        case "Grep", "Glob": return ("Chercher dans le code", input["pattern"] as? String)
-        case "WebFetch": return ("Ouvrir une page web", (input["url"] as? String).flatMap { URL(string: $0)?.host })
-        case "WebSearch": return ("Chercher sur le web", input["query"] as? String)
-        case "Task", "Agent": return ("Lancer un agent", input["description"] as? String)
+            return (input["description"] as? String ?? s.runCommand, command)
+        case "Read": return (s.readFile, file())
+        case "Edit", "MultiEdit": return (s.editFile, file())
+        case "Write": return (s.writeFile, file())
+        case "NotebookEdit": return (s.editNotebook, file("notebook_path"))
+        case "Grep", "Glob": return (s.searchCode, input["pattern"] as? String)
+        case "WebFetch": return (s.openWebPage, (input["url"] as? String).flatMap { URL(string: $0)?.host })
+        case "WebSearch": return (s.searchWeb, input["query"] as? String)
+        case "Task", "Agent": return (s.startAgent, input["description"] as? String)
         default:
             if name.hasPrefix("mcp__") {
                 let parts = name.split(separator: "_", omittingEmptySubsequences: true)
-                return ("Utiliser un outil connecté", parts.last.map(String.init))
+                return (s.connectedTool, parts.last.map(String.init))
             }
-            return ("Utiliser \(name)", nil)
+            return (s.useTool(name), nil)
         }
     }
 
@@ -151,14 +152,14 @@ final class SessionDetailStore {
     private let projects = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".claude/projects", isDirectory: true)
 
-    func detail(for session: Session) async -> SessionDetail? {
+    func detail(for session: Session, strings: Strings) async -> SessionDetail? {
         guard let transcriptId = session.transcriptId, let url = transcript(transcriptId) else { return nil }
         let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-        let key = "\(session.state)|\(modified?.timeIntervalSince1970 ?? 0)"
+        let key = "\(session.state)|\(strings.lang)|\(modified?.timeIntervalSince1970 ?? 0)"
         if let cached = cache[session.id], cached.key == key { return cached.detail }
         let state = session.state
         let detail = await Task.detached(priority: .userInitiated) {
-            SessionDetailReader.read(transcript: url, state: state)
+            SessionDetailReader.read(transcript: url, state: state, strings: strings)
         }.value
         cache[session.id] = (key, detail)
         return detail
@@ -188,6 +189,7 @@ struct SessionCard: View {
     @State private var detail: SessionDetail?
     /// Snapshots give details directly instead of reading transcripts.
     @Environment(\.previewDetails) private var previewDetails
+    @Environment(\.strings) private var strings
 
     var body: some View {
         let preset = previewDetails[session.id]
@@ -200,7 +202,7 @@ struct SessionCard: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Spacer(minLength: 8)
-                Text(elapsed)
+                Text(strings.elapsed(sinceMs: session.stateSince))
                     .font(.system(size: 10.5))
                     .foregroundStyle(.white.opacity(0.55))
                     .fixedSize()
@@ -241,7 +243,7 @@ struct SessionCard: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.white.opacity(0.45))
             } else {
-                Text(session.state.label)
+                Text(strings.label(session.state))
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.7))
             }
@@ -251,9 +253,10 @@ struct SessionCard: View {
         .frame(width: showDetails && shown != nil ? 290 : nil, alignment: .leading)
         .frame(maxWidth: 290)
         .background(GlassBackground(cornerRadius: 12))
-        .task(id: "\(session.id)|\(session.state)|\(session.stateSince)") {
+        .environment(\.layoutDirection, strings.lang.layoutDirection)
+        .task(id: "\(session.id)|\(session.state)|\(session.stateSince)|\(strings.lang)") {
             guard showDetails, preset == nil else { return }
-            detail = await SessionDetailStore.shared.detail(for: session)
+            detail = await SessionDetailStore.shared.detail(for: session, strings: strings)
         }
     }
 
@@ -269,17 +272,10 @@ struct SessionCard: View {
 
     private var hint: String {
         switch session.state {
-        case .needsYou: return "Clic : aller répondre · ⌥-clic : ouvrir à côté"
-        case .paused: return "Clic : reprendre la session"
-        default: return "Clic : ouvrir · ⌥-clic : ouvrir à côté"
+        case .needsYou: return strings.hintNeedsYou
+        case .paused: return strings.hintPaused
+        default: return strings.hintDefault
         }
     }
 
-    private var elapsed: String {
-        let seconds = max(0, Date().timeIntervalSince1970 - session.stateSince / 1_000)
-        if seconds < 60 { return "à l'instant" }
-        if seconds < 3_600 { return "\(Int(seconds / 60)) min" }
-        if seconds < 86_400 { return "\(Int(seconds / 3_600)) h" }
-        return "\(Int(seconds / 86_400)) j"
-    }
 }

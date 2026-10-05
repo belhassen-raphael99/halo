@@ -8,8 +8,8 @@ import SwiftUI
 @MainActor
 enum Debug {
     static func run(_ arguments: [String]) -> Bool {
-        if arguments.contains("--dump") {
-            dump()
+        if let index = arguments.firstIndex(of: "--dump") {
+            dump(language: index + 1 < arguments.count ? arguments[index + 1] : nil)
             return true
         }
         if let index = arguments.firstIndex(of: "--readme"), index + 1 < arguments.count {
@@ -27,25 +27,28 @@ enum Debug {
         return false
     }
 
-    private static func dump() {
-        let store = SessionStore(settings: HaloSettings())
+    /// `--dump`, or `--dump en` / `fr` / `he` for another language than the one in Settings.
+    private static func dump(language: String?) {
+        let settings = HaloSettings()
+        let strings = Strings(lang: language.flatMap(Lang.init(rawValue:)) ?? settings.lang)
+        let store = SessionStore(settings: settings)
         store.loadHidden()
         for session in store.snapshot() {
             let kind = session.isLive ? "live  " : "paused"
-            print("\(kind)\t\(session.icon.symbol)\t\(session.state.label)\t\(session.name)")
+            print("\(kind)\t\(session.icon.symbol)\t\(strings.label(session.state))\t\(session.name)")
             // What its hover card would say.
-            if let id = session.transcriptId, let url = SessionDetailStore.shared.transcript(id),
-               let detail = SessionDetailReader.read(transcript: url, state: session.state) {
-                let body = (detail.lines + [detail.code].compactMap { $0 } + detail.options).prefix(2)
-                    .map { String($0.prefix(70)) }.joined(separator: " | ")
-                print("      ↳ \(detail.title) : \(body)")
-            }
+            guard let id = session.transcriptId, let url = SessionDetailStore.shared.transcript(id),
+                  let detail = SessionDetailReader.read(transcript: url, state: session.state, strings: strings)
+            else { continue }
+            let parts: [String] = detail.lines + [detail.code].compactMap { $0 } + detail.options
+            let body = parts.prefix(2).map { String($0.prefix(70)) }.joined(separator: " | ")
+            print("      ↳ \(detail.title) : \(body)")
         }
     }
 
     private static func snapshot(into directory: URL) {
         let store = SessionStore(preview: Samples.sessions())
-        let details = Samples.details
+        let details = Samples.details()
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         render(store, details, edge: .bottom, notch: nil, hoverIndex: 1,
                to: directory.appendingPathComponent("halo-bottom.png"))
@@ -57,24 +60,34 @@ enum Debug {
                to: directory.appendingPathComponent("halo-notch-scroll.png"))
         render(store, details, edge: .bottom, notch: nil, hoverIndex: 3, iconSize: 30,
                to: directory.appendingPathComponent("halo-small.png"))
-        snapshotSettings(to: directory.appendingPathComponent("halo-settings.png"))
+        snapshotSettings(into: directory)
     }
 
-    /// The Settings window, drawn by AppKit itself (its controls are AppKit views).
-    private static func snapshotSettings(to url: URL) {
-        let actions = SettingsActions(hiddenCount: { 2 }, unhideAll: {}, resetPosition: {},
-                                      launchAtLogin: .constant(true))
-        let hosting = NSHostingView(rootView: SettingsView(settings: HaloSettings(persistent: false), actions: actions))
-        hosting.appearance = NSAppearance(named: .darkAqua)
-        let size = hosting.fittingSize
-        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.contentView = hosting
-        hosting.layoutSubtreeIfNeeded()
-        guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return }
-        hosting.cacheDisplay(in: hosting.bounds, to: rep)
-        try? rep.representation(using: .png, properties: [:])?.write(to: url)
-        print("snapshot → \(url.path)")
+    /// The Settings window in each language, and a hover card in Hebrew (right to left).
+    private static func snapshotSettings(into directory: URL) {
+        for language in [LanguageChoice.fr, .en, .he] {
+            guard let image = ReadmeArt.settingsImage(language: language),
+                  let tiff = image.tiffRepresentation,
+                  let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { continue }
+            let url = directory.appendingPathComponent("halo-settings-\(language.rawValue).png")
+            try? png.write(to: url)
+            print("snapshot → \(url.path)")
+        }
+        let strings = Strings(lang: .he)
+        let session = Samples.sessions().first { $0.name == "API migration" }!
+        let card = SessionCard(session: session, showDetails: true)
+            .padding(30)
+            .background(Color(hex: 0x1A1726))
+            .environment(\.offscreen, true)
+            .environment(\.strings, strings)
+            .environment(\.previewDetails, Samples.details(strings))
+        let renderer = ImageRenderer(content: card)
+        renderer.scale = 2
+        if let image = renderer.cgImage,
+           let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
+            try? png.write(to: directory.appendingPathComponent("halo-card-he.png"))
+            print("snapshot → halo-card-he.png")
+        }
     }
 
     private static func render(_ store: SessionStore, _ details: [String: SessionDetail], edge: DockEdge,

@@ -77,7 +77,11 @@ final class AppController: NSObject, NSApplicationDelegate {
         store.onChange = { [weak self] in self?.sessionsChanged() }
         store.onStateChange = { [weak self] old, new in self?.playSound(from: old, to: new) }
         // Size, magnification and the notch's icon count change the window: re-place it.
-        settings.onChange = { [weak self] in self?.applyPlacement(animated: false) }
+        settings.onChange = { [weak self] in
+            guard let self else { return }
+            applyPlacement(animated: false)
+            settingsWindow.updateTitle(settings.strings)
+        }
         store.start()
         strip = store.strip
         applyPlacement(animated: false)

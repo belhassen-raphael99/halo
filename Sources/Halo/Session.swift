@@ -30,26 +30,6 @@ enum SessionState: Equatable {
         return false
     }
 
-    var label: String {
-        switch self {
-        case .needsYou(let reason): return "Attend ta réponse · \(Self.translate(reason))"
-        case .working: return "Travaille…"
-        case .done: return "Terminé — pas encore vu"
-        case .rest: return "Au repos"
-        case .paused: return "En pause"
-        }
-    }
-
-    private static func translate(_ reason: String) -> String {
-        switch reason {
-        case "permission prompt": return "autorisation"
-        case "input needed": return "question"
-        case "dialog open": return "fenêtre ouverte"
-        case "sandbox request": return "accès réseau"
-        case "goal proposal": return "objectif proposé"
-        default: return reason.isEmpty ? "question" : reason
-        }
-    }
 }
 
 /// One Claude Code session: live (from `~/.claude/sessions/<pid>.json`) or paused

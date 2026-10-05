@@ -72,6 +72,8 @@ Hover any icon to see a small card: the **exact question** with its choices, the
 | **Pinch** | Shrinks or grows the whole bar |
 | **Right-click** | Menu: sessions waiting for you, size, removed sessions, Settings, Quit |
 
+The interface speaks English, French and Hebrew (right to left).
+
 ---
 
 ## Drop it anywhere
@@ -208,6 +210,7 @@ Halo reads three things Claude already keeps on disk, and never writes to them.
 | `SessionDetail.swift` | Transcript reading and the hover card |
 | `SplitOpener.swift` | Side-by-side opening through the Claude app's menu |
 | `Settings.swift` | Settings model and window |
+| `Localization.swift` | Every interface string in English, French and Hebrew |
 | `DockMetrics.swift` | Shared geometry |
 | `ReadmeArt.swift` | This README's artwork, drawn by Halo's own views |
 | `Debug.swift`, `main.swift` | Entry point and command-line tools |
@@ -241,7 +244,7 @@ All continuous effects now run as Core Animation layers, which the system's rend
   <img src="docs/readme/settings.png" alt="Settings window" width="70%">
 </p>
 
-Right-click the bar → *Réglages…*. Every change applies live and is saved instantly.
+Right-click the bar → *Settings…*. Every change applies live and is saved instantly.
 
 <details>
 <summary><b>All settings and their defaults</b></summary>
@@ -250,6 +253,7 @@ Right-click the bar → *Réglages…*. Every change applies live and is saved i
 
 | Setting | Default |
 |---|---|
+| Language | Automatic (your Mac's language; English, French or Hebrew) |
 | Icon size | 46 pt (26–76) |
 | Magnification on hover | ×1.55 (1 = off, up to 2) |
 | Icons visible in the notch | 3 (2–5) |
@@ -265,7 +269,7 @@ The window also shows the Accessibility status, removed sessions (with a button 
 
 </details>
 
-> The interface is in French, my language. The code, comments and docs are in English.
+> **Three languages.** The interface speaks **English, French and Hebrew**, with the Settings window and hover cards laid out right to left in Hebrew. By default it follows your Mac's language; change it at the top of Settings.
 
 ---
 
@@ -299,11 +303,12 @@ This compiles Halo, puts **Halo.app** in `~/Applications` and launches it. No wa
 
 - **Halo has no Dock icon: it is the bar.** It appears at the bottom of your screen. Right-click it for its menu.
 - **Optional: side by side.** ⌥-click an icon once and allow Halo in **System Settings → Privacy & Security → Accessibility**.
-- **Optional: start with your Mac.** Right-click the bar → *Ouvrir Halo au démarrage du Mac*.
+- **Optional: start with your Mac.** Right-click the bar → *Open Halo at login*.
+- **Language.** Halo follows your Mac's language (English, French or Hebrew). Change it at the top of Settings.
 
 ### Uninstall
 
-Right-click the bar → *Quitter Halo*, delete **Halo.app**, and if you wish, its settings:
+Right-click the bar → *Quit Halo*, delete **Halo.app**, and if you wish, its settings:
 
 ```bash
 defaults delete com.belhassen.halo
@@ -315,7 +320,7 @@ defaults delete com.belhassen.halo
 
 ```bash
 swift build -c release                                # compile
-.build/release/Halo --dump                            # every session, its state, and what its hover card says
+.build/release/Halo --dump [en|fr|he]                 # every session, its state, and what its hover card says
 .build/release/Halo --snapshot <dir>                  # renders the bar in each placement as PNGs
 .build/release/Halo --readme docs/readme              # regenerates this README's artwork
 .build/release/Halo --appicon Resources/AppIcon.icns  # regenerates the app icon
