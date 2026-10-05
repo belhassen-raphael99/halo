@@ -370,12 +370,15 @@ final class AppController: NSObject, NSApplicationDelegate {
         updateAutoHide()
     }
 
-    /// A window of another app covering the whole display, menu bar included: full screen.
+    /// Another app is full screen on this display. With the Accessibility permission, macOS
+    /// says so directly (on a notched Mac, a full-screen window stops under the notch, exactly
+    /// like a merely maximized one). Without it: a window covering the whole display.
     private static func hasFullScreenWindow(on screen: NSScreen) -> Bool {
         guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
             return false
         }
         let display = CGDisplayBounds(CGDirectDisplayID(number.uint32Value))
+        if frontWindowIsFullScreen(on: display) { return true }
         let me = ProcessInfo.processInfo.processIdentifier
         let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
             as? [[String: Any]] ?? []
@@ -387,6 +390,29 @@ final class AppController: NSObject, NSApplicationDelegate {
             return abs(rect.minX - display.minX) < 1 && abs(rect.minY - display.minY) < 1
                 && abs(rect.width - display.width) < 1 && abs(rect.height - display.height) < 1
         }
+    }
+
+    /// The front app's focused window is in full screen, on this display (`display` in CG coordinates).
+    private static func frontWindowIsFullScreen(on display: CGRect) -> Bool {
+        guard AXIsProcessTrusted(), let app = NSWorkspace.shared.frontmostApplication,
+              app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return false }
+        let element = AXUIElementCreateApplication(app.processIdentifier)
+        // A busy app must not stall the bar.
+        AXUIElementSetMessagingTimeout(element, 0.25)
+        var focused: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXFocusedWindowAttribute as CFString, &focused) == .success,
+              let focused, CFGetTypeID(focused) == AXUIElementGetTypeID() else { return false }
+        let window = focused as! AXUIElement
+        var fullScreen: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(window, "AXFullScreen" as CFString, &fullScreen) == .success,
+              (fullScreen as? Bool) == true else { return false }
+        var position: CFTypeRef?
+        var origin = CGPoint.zero
+        if AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &position) == .success,
+           let position, CFGetTypeID(position) == AXValueGetTypeID() {
+            AXValueGetValue(position as! AXValue, .cgPoint, &origin)
+        }
+        return display.insetBy(dx: -1, dy: -1).contains(origin)
     }
 
     private var toastTask: Task<Void, Never>?

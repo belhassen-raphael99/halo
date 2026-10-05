@@ -263,7 +263,7 @@ All continuous effects now run as Core Animation layers, which the system's rend
 
 - **Read-only on Claude.** Halo never writes to Claude's files. It only writes its own settings and your icon rules (`~/Library/Application Support/Halo`).
 - **Offline.** No network, no analytics, no API key.
-- **Your call.** Side-by-side opening needs the Accessibility permission, and notifications need macOS's permission; only you can grant them. Everything else works without either.
+- **Your call.** Side-by-side opening needs the Accessibility permission (it also lets auto-hide recognize full-screen apps on Macs with a notch, where a full-screen window looks just like a maximized one), and notifications need macOS's permission; only you can grant them. Everything else works without either.
 
 ---
 
